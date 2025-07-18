@@ -1,3 +1,5 @@
+
+
 import streamlit as st
 import pandas as pd
 import os
@@ -65,3 +67,6 @@ if st.button("Get Exam Info"):
 
         if not found:
             st.error("❌ No exam details found for the given Roll Number and Date.")
+st.subheader("📄 Raw Data Preview")
+st.dataframe(df)
+
