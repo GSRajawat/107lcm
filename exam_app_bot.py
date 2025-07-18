@@ -12,7 +12,7 @@ if st.button("🔄 Clear Cache"):
 # Load Data
 @st.cache_data
 def load_data():
-    df = pd.read_csv("exam room sitting.csv")
+    df = pd.read_csv("exam room sitting1.csv")
     df.columns = df.columns.str.strip()
     
     roll_columns = [col for col in df.columns if col.startswith("Roll Number")]
@@ -49,14 +49,18 @@ if st.button("Get Exam Info"):
                 for r_col, s_col in zip(roll_columns, seat_columns):
                     if row[r_col] == roll:
                         st.success("✅ Exam Details Found!")
-                        st.markdown(f"""
+                        room = str(row["Room Number"]).replace(".0", "") if pd.notnull(row["Room Number"]) else ""
+seat = str(row[s_col]).replace(".0", "") if pd.notnull(row[s_col]) else ""
+
+st.markdown(f"""
 - 📅 **Date**: {row['Date']}
-- 🧑‍🏫 **Class**: {row.get('Class', 'N/A')}
-- 🏫 **Room Number**: {row.get('Room Number', 'N/A')}
-- 🪑 **Seat Number**: {row[s_col]}
-- 📘 **Paper**: {row.get('Paper', 'N/A')}
-- 🕘 **Shift**: {row.get('Shift', 'N/A')}
-                        """)
+- 🧑‍🏫 **Class**: {row['Class']}
+- 🏫 **Room Number**: {room}
+- 🪑 **Seat Number**: {seat}
+- 📘 **Paper**: {row['Paper']}
+- 🕘 **Shift**: {row['Shift']}
+""")
+
                         found = True
                         break
             if found:
