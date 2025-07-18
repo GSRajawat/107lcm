@@ -11,7 +11,7 @@ def load_data():
     file_path = "exam room sitting.csv"
     ext = os.path.splitext(file_path)[1].lower()
 
-   @st.cache_data
+@st.cache_data
 def load_data():
     df = pd.read_csv("exam room sitting.csv")
     df.columns = df.columns.str.strip()
