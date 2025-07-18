@@ -1,14 +1,27 @@
 import streamlit as st
 import pandas as pd
 
-# Load and cache data
+import os
+if st.button("🔄 Clear Cache"):
+    st.cache_data.clear()
+    st.success("Cache cleared! Reload the app.")
 @st.cache_data
 def load_data():
-    df = pd.read_csv("exam room sitting.csv")  # Use read_csv for CSV files
+    file_path = "exam room sitting.xlsx"
+    ext = os.path.splitext(file_path)[1].lower()
+
+    if ext == ".csv":
+        df = pd.read_csv(file_path)
+    elif ext in [".xls", ".xlsx"]:
+        df = pd.read_excel(file_path, engine="openpyxl")
+    else:
+        raise ValueError("Unsupported file type")
+
     df.columns = df.columns.str.strip()
     roll_columns = [col for col in df.columns if col.startswith("Roll No")]
     seat_columns = [col for col in df.columns if col.startswith("Seat No")]
     return df, roll_columns, seat_columns
+
 
 # Load
 df, roll_columns, seat_columns = load_data()
