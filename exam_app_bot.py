@@ -4,17 +4,10 @@ import pandas as pd
 # Load and cache data
 @st.cache_data
 def load_data():
-    df = pd.read_csv("exam room sitting.csv")
+    df = pd.read_csv("exam room sitting.csv")  # Use read_csv for CSV files
     df.columns = df.columns.str.strip()
-    
-    roll_columns = [col for col in df.columns if col.startswith("Roll Number")]
-    seat_columns = [col for col in df.columns if col.startswith("Seat Number")]
-    
-    # Strip and convert Roll Numbers to string
-    for col in roll_columns:
-        df[col] = df[col].astype(str).str.strip()
-        
-    df["Date"] = df["Date"].astype(str).str.strip()
+    roll_columns = [col for col in df.columns if col.startswith("Roll No")]
+    seat_columns = [col for col in df.columns if col.startswith("Seat No")]
     return df, roll_columns, seat_columns
 
 # Load
