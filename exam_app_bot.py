@@ -49,14 +49,11 @@ if st.button("Get Exam Info"):
                 for r_col, s_col in zip(roll_columns, seat_columns):
                     if row[r_col] == roll:
                         st.success("✅ Exam Details Found!")
-                        room = str(row["Room Number"]).replace(".0", "") if pd.notnull(row["Room Number"]) else ""
-seat = str(row[s_col]).replace(".0", "") if pd.notnull(row[s_col]) else ""
-
-st.markdown(f"""
+                        st.markdown(f"""
 - 📅 **Date**: {row['Date']}
 - 🧑‍🏫 **Class**: {row['Class']}
-- 🏫 **Room Number**: {room}
-- 🪑 **Seat Number**: {seat}
+- 🏫 **Room Number**: {row['Room Number']}
+- 🪑 **Seat Number**: {row[s_col]}
 - 📘 **Paper**: {row['Paper']}
 - 🕘 **Shift**: {row['Shift']}
 """)
