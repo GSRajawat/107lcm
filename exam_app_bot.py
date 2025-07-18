@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 
 import os
-if st.button("🔄 Clear Cache"):
-    st.cache_data.clear()
-    st.success("Cache cleared! Reload the app.")
+
 @st.cache_data
 def load_data():
     file_path = "exam room sitting.xlsx"
