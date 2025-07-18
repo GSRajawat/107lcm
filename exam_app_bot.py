@@ -12,21 +12,18 @@ if st.button("🔄 Clear Cache"):
 # Load Data
 @st.cache_data
 def load_data():
-    file_path = "exam room sitting.csv"
-    df = pd.read_csv(file_path)
+    df = pd.read_csv("exam room sitting.csv")
     df.columns = df.columns.str.strip()
-
-    # Extract roll and seat columns dynamically
-    roll_columns = [col for col in df.columns if col.strip().startswith("Roll Number")]
-    seat_columns = [col for col in df.columns if col.strip().startswith("Seat Number")]
-
-    # Strip and convert data
+    
+    roll_columns = [col for col in df.columns if col.startswith("Roll Number")]
+    seat_columns = [col for col in df.columns if col.startswith("Seat Number")]
+    
+    # Ensure roll numbers are strings and remove any ".0"
     for col in roll_columns:
-        df[col] = df[col].astype(str).str.strip()
-
+        df[col] = df[col].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+        
     df["Date"] = df["Date"].astype(str).str.strip()
     return df, roll_columns, seat_columns
-
 # Load
 try:
     df, roll_columns, seat_columns = load_data()
