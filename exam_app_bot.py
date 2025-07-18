@@ -55,7 +55,7 @@ if st.button("Get Exam Info"):
 - 📅 **Date**: {row['Date']}
 - 🧑‍🏫 **Class**: {row['Class']}
 - 🏫 **Room Number**: {row['Room Number']}
-- 🪑 **Seat Number**: {row[s_col]}.strip()
+- 🪑 **Seat Number**: {row[s_col].strip()}
 - 📘 **Paper**: {row['Paper']}
 - 🕘 **Shift**: {row['Shift']}
 """)
