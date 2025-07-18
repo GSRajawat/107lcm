@@ -4,7 +4,7 @@ import pandas as pd
 # Load and cache data
 @st.cache_data
 def load_data():
-    df = pd.read_excel("exam room sitting.csv")
+    df = pd.read_csv("exam room sitting.csv")
     df.columns = df.columns.str.strip()
     
     roll_columns = [col for col in df.columns if col.startswith("Roll Number")]
