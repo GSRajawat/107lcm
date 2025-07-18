@@ -8,7 +8,7 @@ if st.button("🔄 Clear Cache"):
 
 @st.cache_data
 def load_data():
-    file_path = "exam room sitting.xlsx"
+    file_path = "exam room sitting.csv"
     ext = os.path.splitext(file_path)[1].lower()
 
    @st.cache_data
