@@ -111,7 +111,7 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                     (timetable["Date"].str.strip() == date_str) # Match against the provided date
                 ]
 
-                if not matches_in_timetable.empty: # Corrected from `matching_exam_tt`
+                if not matches_in_timetable.empty:
                     # If there are multiple timetable entries for the same paper/class/date (e.g., different shifts),
                     # add all of them as separate sitting details.
                     for _, tt_row in matches_in_timetable.iterrows():
@@ -122,8 +122,8 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                         if s_col in sp_row.index: # Check if column exists
                             seat_num_raw = str(sp_row[s_col]).strip()
                             try:
-                                seat_num_sort_key = int(seat_num_raw)
-                                seat_num_display = seat_num_raw
+                                seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
+                                seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
                             except ValueError:
                                 seat_num_display = seat_num_raw if seat_num_raw else "N/A"
                         else:
@@ -198,8 +198,8 @@ def generate_room_chart(date_str, shift, room_number, sitting_plan, timetable):
                     if s_col in sp_row.index: # Check if column exists
                         seat_num_raw = str(sp_row[s_col]).strip()
                         try:
-                            seat_num_sort_key = int(seat_num_raw)
-                            seat_num_display = seat_num_raw
+                            seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
+                            seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
                         except ValueError:
                             seat_num_display = seat_num_raw if seat_num_raw else "N/A"
                     else:
@@ -303,7 +303,7 @@ def generate_room_chart(date_str, shift, room_number, sitting_plan, timetable):
 
     return excel_output_data, None
 
-# New function to get all students for a given date and shift in the requested text format
+# Function to get all students for a given date and shift in the requested text format
 # This function will now also return data suitable for Excel download
 def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, timetable):
     all_students_data = []
@@ -360,8 +360,8 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
                     if s_col in sp_row.index: # Check if column exists
                         seat_num_raw = str(sp_row[s_col]).strip()
                         try:
-                            seat_num_sort_key = int(seat_num_raw)
-                            seat_num_display = seat_num_raw
+                            seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
+                            seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
                         except ValueError:
                             seat_num_sort_key = float('inf') # Assign a large number to sort at the end
                             seat_num_display = seat_num_raw if seat_num_raw else "N/A" # Display raw or N/A
@@ -438,7 +438,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
 
     # Excel Student Data Section (now each block of 10 students is one row, each student is one cell)
     for room_num in sorted(students_by_room.keys()):
-        excel_output_data.append([f"कक्ष :-{room_num}"])
+        excel_output_data.append([f" कक्ष :-{room_num}"]) # Added space for consistency
         current_room_students = students_by_room[room_num]
 
         num_cols = 10
@@ -459,6 +459,135 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
 
     return final_text_output, None, excel_output_data
 
+# New function to get all students for a given date and shift, sorted by roll number
+def get_all_students_roll_number_wise_formatted(date_str, shift, sitting_plan, timetable):
+    all_students_data = []
+
+    current_day_exams_tt = timetable[
+        (timetable["Date"].astype(str).str.strip() == date_str) &
+        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+    ]
+
+    if current_day_exams_tt.empty:
+        return None, "No exams found for the selected date and shift.", None
+
+    exam_time = current_day_exams_tt.iloc[0]["Time"].strip() if "Time" in current_day_exams_tt.columns else "TBD"
+    unique_classes = current_day_exams_tt['Class'].dropna().astype(str).str.strip().unique()
+    class_summary_header = ""
+    if len(unique_classes) == 1:
+        class_summary_header = f"{unique_classes[0]} Examination {datetime.datetime.now().year}"
+    elif len(unique_classes) > 1:
+        class_summary_header = f"Various Classes Examination {datetime.datetime.now().year}"
+    else:
+        class_summary_header = f"Examination {datetime.datetime.now().year}"
+
+    for _, tt_row in current_day_exams_tt.iterrows():
+        tt_class = str(tt_row["Class"]).strip()
+        tt_paper = str(tt_row["Paper"]).strip()
+        tt_paper_code = str(tt_row["Paper Code"]).strip()
+        tt_paper_name = str(tt_row["Paper Name"]).strip()
+
+        matching_students_sp = sitting_plan[
+            (sitting_plan["Class"].astype(str).str.strip().str.lower() == tt_class.lower()) &
+            (sitting_plan["Paper"].astype(str).str.strip() == tt_paper) &
+            (sitting_plan["Paper Code"].astype(str).str.strip() == tt_paper_code) &
+            (sitting_plan["Paper Name"].astype(str).str.strip() == tt_paper_name)
+        ]
+
+        for _, sp_row in matching_students_sp.iterrows():
+            room_num = str(sp_row["Room Number "]).strip()
+            
+            for i in range(1, 11):
+                roll_col = f"Roll Number {i}"
+                s_col = f"Seat Number {i}"
+
+                roll_num = str(sp_row.get(roll_col, '')).strip()
+                seat_num_display = ""
+                seat_num_sort_key = None
+
+                if roll_num and roll_num != 'nan':
+                    if s_col in sp_row.index:
+                        seat_num_raw = str(sp_row[s_col]).strip()
+                        try:
+                            seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
+                            seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
+                        except ValueError:
+                            seat_num_sort_key = float('inf')
+                            seat_num_display = seat_num_raw if seat_num_raw else "N/A"
+                    else:
+                        seat_num_sort_key = float('inf')
+                        seat_num_display = "N/A"
+
+                    all_students_data.append({
+                        "roll_num": roll_num,
+                        "room_num": room_num,
+                        "seat_num_display": seat_num_display,
+                        "seat_num_sort_key": seat_num_sort_key,
+                        "paper_name": tt_paper_name,
+                        "paper_code": tt_paper_code,
+                        "class_name": tt_class,
+                        "date": date_str,
+                        "shift": shift
+                    })
+    
+    if not all_students_data:
+        return None, "No students found for the selected date and shift.", None
+
+    # Sort the collected data by Roll Number (lexicographically as strings)
+    all_students_data.sort(key=lambda x: x['roll_num'])
+
+    # --- Prepare text output ---
+    output_string_parts = []
+    output_string_parts.append("जीवाजी विश्वविद्यालय ग्वालियर")
+    output_string_parts.append("परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरैना (म. प्र.) कोड :- G107")
+    output_string_parts.append(class_summary_header)
+    output_string_parts.append(f"दिनांक :-{date_str}")
+    output_string_parts.append(f"पाली :-{shift}")
+    output_string_parts.append(f"समय :-{exam_time}")
+    output_string_parts.append("") # Blank line for separation
+
+    num_cols = 10 
+    for i in range(0, len(all_students_data), num_cols):
+        block_students = all_students_data[i : i + num_cols]
+        
+        single_line_students = []
+        for student in block_students:
+            single_line_students.append(
+                f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
+            )
+        output_string_parts.append("".join(single_line_students))
+
+    final_text_output = "\n".join(output_string_parts)
+
+    # --- Prepare Excel output data ---
+    excel_output_data = []
+
+    # Excel Header
+    excel_output_data.append(["जीवाजी विश्वविद्यालय ग्वालियर"])
+    excel_output_data.append(["परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरैना (म. प्र.) कोड :- G107"])
+    excel_output_data.append([class_summary_header])
+    excel_output_data.append([]) # Blank line
+    excel_output_data.append(["दिनांक :-", date_str])
+    excel_output_data.append(["पाली :-", shift])
+    excel_output_data.append(["समय :-", exam_time])
+    excel_output_data.append([]) # Blank line
+
+    # Excel Student Data Section
+    for i in range(0, len(all_students_data), num_cols):
+        block_students = all_students_data[i : i + num_cols]
+        
+        excel_row_for_students = [""] * num_cols
+
+        for k, student in enumerate(block_students):
+            excel_row_for_students[k] = (
+                f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
+            )
+        
+        excel_output_data.append(excel_row_for_students)
+        excel_output_data.append([""] * num_cols) # Blank row for spacing
+
+    return final_text_output, None, excel_output_data
+
 
 # Main app
 st.title("📘 Exam Room & Seat Finder")
@@ -474,8 +603,7 @@ if menu == "Student View":
     else:
         option = st.radio("Choose Search Option:", [
             "Search by Roll Number and Date",
-            "Get Full Exam Schedule by Roll Number",
-            "Get All Students for Date & Shift" # New option
+            "Get Full Exam Schedule by Roll Number"
         ])
 
         if option == "Search by Roll Number and Date":
@@ -508,178 +636,255 @@ if menu == "Student View":
                 else:
                     st.warning("No exam records found for this roll number.")
 
-        elif option == "Get All Students for Date & Shift": # New module UI
-            st.subheader("List All Students for a Date and Shift")
-            list_date_input = st.date_input("Select Date", value=datetime.date.today())
-            list_shift_options = ["Morning", "Evening"]
-            list_shift = st.selectbox("Select Shift", list_shift_options)
-            
-            if st.button("Get Student List"):
-                formatted_student_list_text, error_message, excel_data_for_students_list = get_all_students_for_date_shift_formatted(
-                    list_date_input.strftime('%d-%m-%Y'),
-                    list_shift,
-                    sitting_plan,
-                    timetable
-                )
-                if formatted_student_list_text:
-                    st.success(f"Generated list for {list_date_input.strftime('%d-%m-%Y')} ({list_shift} Shift):")
-                    st.text_area("Student List (Text Format)", formatted_student_list_text, height=500)
-                    
-                    # Download button for TXT
-                    file_name_txt = (
-                        f"all_students_list_{list_date_input.strftime('%Y%m%d')}_"
-                        f"{list_shift.lower()}.txt"
-                    )
-                    st.download_button(
-                        label="Download Student List as TXT",
-                        data=formatted_student_list_text,
-                        file_name=file_name_txt,
-                        mime="text/plain"
-                    )
-
-                    # Download button for Excel
-                    if excel_data_for_students_list:
-                        output = io.BytesIO()
-                        workbook = Workbook()
-                        sheet = workbook.active
-                        sheet.title = "Student List"
-
-                        for row_data in excel_data_for_students_list:
-                            sheet.append(row_data)
-
-                        # Adjust column widths for better readability
-                        for col_idx, col_cells in enumerate(sheet.columns):
-                            max_length = 0
-                            for cell in col_cells:
-                                try:
-                                    if cell.value is not None:
-                                        cell_value_str = str(cell.value)
-                                        current_length = max(len(line) for line in cell_value_str.split('\n'))
-                                        if current_length > max_length:
-                                            max_length = current_length
-                                except:
-                                    pass
-                            adjusted_width = (max_length + 2)
-                            sheet.column_dimensions[get_column_letter(col_idx + 1)].width = adjusted_width
-
-                        workbook.save(output)
-                        processed_data = output.getvalue()
-
-                        file_name_excel = (
-                            f"all_students_list_{list_date_input.strftime('%Y%m%d')}_"
-                            f"{list_shift.lower()}.xlsx"
-                        )
-                        st.download_button(
-                            label="Download Student List as Excel",
-                            data=processed_data,
-                            file_name=file_name_excel,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                else:
-                    st.warning(f"No students found: {error_message}")
-
 
 elif menu == "Admin Panel":
     st.subheader("🔐 Admin Login")
     if admin_login():
         st.success("Login successful!")
         
+        # Load data here, inside the successful login block
+        sitting_plan, timetable = load_data()
+
         # File Upload Section
         st.subheader("📤 Upload Data Files")
         uploaded_sitting = st.file_uploader("Upload sitting_plan.csv", type=["csv"])
         if uploaded_sitting:
             if save_uploaded_file(uploaded_sitting, "sitting_plan.csv"):
                 st.success("Sitting plan uploaded successfully.")
+                sitting_plan, timetable = load_data() # Reload data after successful upload
 
         uploaded_timetable = st.file_uploader("Upload timetable.csv", type=["csv"])
         if uploaded_timetable:
             if save_uploaded_file(uploaded_timetable, "timetable.csv"):
                 st.success("Timetable uploaded successfully.")
+                sitting_plan, timetable = load_data() # Reload data after successful upload
         
         st.markdown("---") # Separator
 
-        # Generate Room Chart Section
-        st.subheader("📊 Generate Room Chart")
-        sitting_plan, timetable = load_data() # Reload data to ensure latest uploads are used
+        # Admin Panel Options
+        admin_option = st.radio("Select Admin Task:", [
+            "Generate Room Chart",
+            "Get All Students for Date & Shift (Room Wise)", # Moved and renamed
+            "Get All Students for Date & Shift (Roll Number Wise)" # New feature
+        ])
 
         if sitting_plan.empty or timetable.empty:
-            st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' to generate room charts.")
+            st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' to use these features.")
         else:
-            # Input fields for chart generation
-            chart_date_input = st.date_input("Select Exam Date for Chart", value=datetime.date.today())
-            chart_shift_options = ["Morning", "Evening"]
-            chart_shift = st.selectbox("Select Shift", chart_shift_options)
-            
-            all_room_numbers = sitting_plan['Room Number '].dropna().astype(str).str.strip().unique()
-            selected_room_number_for_chart = st.selectbox("Select Room Number", [""] + sorted(all_room_numbers.tolist()))
+            if admin_option == "Generate Room Chart":
+                st.subheader("📊 Generate Room Chart")
+                
+                # Input fields for chart generation
+                chart_date_input = st.date_input("Select Exam Date for Chart", value=datetime.date.today())
+                chart_shift_options = ["Morning", "Evening"]
+                chart_shift = st.selectbox("Select Shift", chart_shift_options)
+                
+                all_room_numbers = sitting_plan['Room Number '].dropna().astype(str).str.strip().unique()
+                selected_room_number_for_chart = st.selectbox("Select Room Number", [""] + sorted(all_room_numbers.tolist()))
 
-            if st.button("Generate Chart"):
-                if not (selected_room_number_for_chart):
-                    st.warning("Please select a Room Number to generate the chart.")
-                else:
-                    chart_data_for_excel, error_message = generate_room_chart(
-                        chart_date_input.strftime('%d-%m-%Y'),
-                        chart_shift,
-                        selected_room_number_for_chart,
-                        sitting_plan,
-                        timetable
-                    )
-                    if chart_data_for_excel:
-                        st.success("Room Chart Generated!")
-                        
-                        # Display the chart data in Streamlit
-                        # Create a DataFrame from the list of lists for display
-                        # Find the row where "अनुक्रमांक (कक्ष क्र. - सीट क्र.)" appears
-                        start_display_idx = -1
-                        for idx, row in enumerate(chart_data_for_excel):
-                            if row and isinstance(row[0], str) and "अनुक्रमांक (कक्ष क्र. - सीट क्र.)" in row[0]:
-                                start_display_idx = idx
-                                break
-                        
-                        if start_display_idx != -1:
-                            # Display from this point onwards, excluding the header rows for the dataframe
-                            st.dataframe(pd.DataFrame(chart_data_for_excel[start_display_idx:]))
-                        else:
-                            st.dataframe(pd.DataFrame(chart_data_for_excel)) # Fallback if header not found
+                if st.button("Generate Chart"):
+                    if not (selected_room_number_for_chart):
+                        st.warning("Please select a Room Number to generate the chart.")
+                    else:
+                        chart_data_for_excel, error_message = generate_room_chart(
+                            chart_date_input.strftime('%d-%m-%Y'),
+                            chart_shift,
+                            selected_room_number_for_chart,
+                            sitting_plan,
+                            timetable
+                        )
+                        if chart_data_for_excel:
+                            st.success("Room Chart Generated!")
+                            
+                            # Display the chart data in Streamlit
+                            start_display_idx = -1
+                            for idx, row in enumerate(chart_data_for_excel):
+                                if row and isinstance(row[0], str) and "अनुक्रमांक (कक्ष क्र. - सीट क्र.)" in row[0]:
+                                    start_display_idx = idx
+                                    break
+                            
+                            if start_display_idx != -1:
+                                st.dataframe(pd.DataFrame(chart_data_for_excel[start_display_idx:]))
+                            else:
+                                st.dataframe(pd.DataFrame(chart_data_for_excel))
 
 
-                        output = io.BytesIO()
-                        workbook = Workbook()
-                        sheet = workbook.active
-                        sheet.title = "Room Chart"
+                            output = io.BytesIO()
+                            workbook = Workbook()
+                            sheet = workbook.active
+                            sheet.title = "Room Chart"
 
-                        for row_data in chart_data_for_excel:
-                            sheet.append(row_data)
+                            for row_data in chart_data_for_excel:
+                                sheet.append(row_data)
 
-                        for col_idx, col_cells in enumerate(sheet.columns):
-                            max_length = 0
-                            for cell in col_cells:
-                                try:
-                                    if cell.value is not None:
-                                        cell_value_str = str(cell.value)
-                                        current_length = max(len(line) for line in cell_value_str.split('\n'))
-                                        if current_length > max_length:
-                                            max_length = current_length
-                                except:
-                                    pass
+                            for col_idx, col_cells in enumerate(sheet.columns):
+                                max_length = 0
+                                for cell in col_cells:
+                                    try:
+                                        if cell.value is not None:
+                                            cell_value_str = str(cell.value)
+                                            current_length = max(len(line) for line in cell_value_str.split('\n'))
+                                            if current_length > max_length:
+                                                max_length = current_length
+                                    except:
+                                        pass
                             adjusted_width = (max_length + 2)
                             sheet.column_dimensions[get_column_letter(col_idx + 1)].width = adjusted_width
 
-                        workbook.save(output)
-                        processed_data = output.getvalue()
+                            workbook.save(output)
+                            processed_data = output.getvalue()
 
-                        file_name = (
-                            f"room_chart_R{selected_room_number_for_chart}_"
-                            f"{chart_date_input.strftime('%Y%m%d')}_"
-                            f"{chart_shift.lower()}.xlsx"
+                            file_name = (
+                                f"room_chart_R{selected_room_number_for_chart}_"
+                                f"{chart_date_input.strftime('%Y%m%d')}_"
+                                f"{chart_shift.lower()}.xlsx"
+                            )
+                            st.download_button(
+                                label="Download Room Chart as Excel",
+                                data=processed_data,
+                                file_name=file_name,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                        else:
+                            st.error(f"Failed to generate chart: {error_message}")
+            
+            elif admin_option == "Get All Students for Date & Shift (Room Wise)": # Moved module UI
+                st.subheader("List All Students for a Date and Shift (Room Wise)")
+                list_date_input = st.date_input("Select Date", value=datetime.date.today())
+                list_shift_options = ["Morning", "Evening"]
+                list_shift = st.selectbox("Select Shift", list_shift_options)
+                
+                if st.button("Get Student List (Room Wise)"):
+                    formatted_student_list_text, error_message, excel_data_for_students_list = get_all_students_for_date_shift_formatted(
+                        list_date_input.strftime('%d-%m-%Y'),
+                        list_shift,
+                        sitting_plan,
+                        timetable
+                    )
+                    if formatted_student_list_text:
+                        st.success(f"Generated list for {list_date_input.strftime('%d-%m-%Y')} ({list_shift} Shift):")
+                        st.text_area("Student List (Text Format)", formatted_student_list_text, height=500)
+                        
+                        # Download button for TXT
+                        file_name_txt = (
+                            f"all_students_list_room_wise_{list_date_input.strftime('%Y%m%d')}_"
+                            f"{list_shift.lower()}.txt"
                         )
                         st.download_button(
-                            label="Download Room Chart as Excel",
-                            data=processed_data,
-                            file_name=file_name,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            label="Download Student List (Room Wise) as TXT",
+                            data=formatted_student_list_text,
+                            file_name=file_name_txt,
+                            mime="text/plain"
                         )
+
+                        # Download button for Excel
+                        if excel_data_for_students_list:
+                            output = io.BytesIO()
+                            workbook = Workbook()
+                            sheet = workbook.active
+                            sheet.title = "Student List (Room Wise)"
+
+                            for row_data in excel_data_for_students_list:
+                                sheet.append(row_data)
+
+                            for col_idx, col_cells in enumerate(sheet.columns):
+                                max_length = 0
+                                for cell in col_cells:
+                                    try:
+                                        if cell.value is not None:
+                                            cell_value_str = str(cell.value)
+                                            current_length = max(len(line) for line in cell_value_str.split('\n'))
+                                            if current_length > max_length:
+                                                max_length = current_length
+                                    except:
+                                        pass
+                            adjusted_width = (max_length + 2)
+                            sheet.column_dimensions[get_column_letter(col_idx + 1)].width = adjusted_width
+
+                            workbook.save(output)
+                            processed_data = output.getvalue()
+
+                            file_name_excel = (
+                                f"all_students_list_room_wise_{list_date_input.strftime('%Y%m%d')}_"
+                                f"{list_shift.lower()}.xlsx"
+                            )
+                            st.download_button(
+                                label="Download Student List (Room Wise) as Excel",
+                                data=processed_data,
+                                file_name=file_name_excel,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
                     else:
-                        st.error(f"Failed to generate chart: {error_message}")
+                        st.warning(f"No students found: {error_message}")
+
+            elif admin_option == "Get All Students for Date & Shift (Roll Number Wise)": # New feature UI
+                st.subheader("List All Students for a Date and Shift (Roll Number Wise)")
+                list_date_input = st.date_input("Select Date", value=datetime.date.today(), key="roll_num_wise_date")
+                list_shift_options = ["Morning", "Evening"]
+                list_shift = st.selectbox("Select Shift", list_shift_options, key="roll_num_wise_shift")
+                
+                if st.button("Get Student List (Roll Number Wise)"):
+                    formatted_student_list_text, error_message, excel_data_for_students_list = get_all_students_roll_number_wise_formatted(
+                        list_date_input.strftime('%d-%m-%Y'),
+                        list_shift,
+                        sitting_plan,
+                        timetable
+                    )
+                    if formatted_student_list_text:
+                        st.success(f"Generated list for {list_date_input.strftime('%d-%m-%Y')} ({list_shift} Shift):")
+                        st.text_area("Student List (Text Format)", formatted_student_list_text, height=500)
+                        
+                        # Download button for TXT
+                        file_name_txt = (
+                            f"all_students_list_roll_wise_{list_date_input.strftime('%Y%m%d')}_"
+                            f"{list_shift.lower()}.txt"
+                        )
+                        st.download_button(
+                            label="Download Student List (Roll Number Wise) as TXT",
+                            data=formatted_student_list_text,
+                            file_name=file_name_txt,
+                            mime="text/plain"
+                        )
+
+                        # Download button for Excel
+                        if excel_data_for_students_list:
+                            output = io.BytesIO()
+                            workbook = Workbook()
+                            sheet = workbook.active
+                            sheet.title = "Student List (Roll Wise)"
+
+                            for row_data in excel_data_for_students_list:
+                                sheet.append(row_data)
+
+                            for col_idx, col_cells in enumerate(sheet.columns):
+                                max_length = 0
+                                for cell in col_cells:
+                                    try:
+                                        if cell.value is not None:
+                                            cell_value_str = str(cell.value)
+                                            current_length = max(len(line) for line in cell_value_str.split('\n'))
+                                            if current_length > max_length:
+                                                max_length = current_length
+                                    except:
+                                        pass
+                            adjusted_width = (max_length + 2)
+                            sheet.column_dimensions[get_column_letter(col_idx + 1)].width = adjusted_width
+
+                            workbook.save(output)
+                            processed_data = output.getvalue()
+
+                            file_name_excel = (
+                                f"all_students_list_roll_wise_{list_date_input.strftime('%Y%m%d')}_"
+                                f"{list_shift.lower()}.xlsx"
+                            )
+                            st.download_button(
+                                label="Download Student List (Roll Number Wise) as Excel",
+                                data=processed_data,
+                                file_name=file_name_excel,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                    else:
+                        st.warning(f"No students found: {error_message}")
+
     else:
         st.warning("Enter valid admin credentials.")
