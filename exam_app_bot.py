@@ -6,109 +6,18 @@ import io
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment, Font
-import json # <--- ADDED THIS IMPORT
+import json
+import ast # Added for literal_eval to convert string representations of lists back to lists
 
-# Firebase imports
-from firebase_admin import credentials, initialize_app
-from firebase_admin import auth, firestore
-import firebase_admin # Import the top-level module to check _apps
+# --- Configuration ---
+CS_REPORTS_FILE = "cs_reports.csv"
 
-# Initialize Firebase Admin SDK if not already initialized
-# This part is crucial for server-side Firebase operations (like Firestore)
-# It should only run once. Streamlit's rerun behavior makes this tricky,
-# so we use st.session_state to ensure single initialization.
-if 'firebase_initialized' not in st.session_state:
-    try:
-        # Check if a Firebase app is already initialized to prevent ValueError
-        if not firebase_admin._apps:
-            # Attempt to initialize using Application Default Credentials
-            # This works automatically in Google Cloud environments
-            cred = credentials.ApplicationDefault()
-            initialize_app(cred, name='default') # Use 'default' name if not specified
-        
-        st.session_state.firebase_initialized = True
-        st.session_state.db = firestore.client() # Get the actual Firestore client
-        st.session_state.auth = auth # Get the actual Auth client (though not used for login here)
-        
-        # The __app_id from Canvas is primarily for frontend.
-        # For backend, we use the default app or named app from initialize_app.
-        st.session_state.app_id = os.environ.get('__app_id', 'default-app-id') # Fallback for app_id
-        
-        st.success("Firebase Admin SDK initialized successfully!")
-
-    except Exception as e:
-        st.warning(f"Failed to initialize Firebase Admin SDK using Application Default Credentials: {e}. Falling back to mock Firestore for local development.")
-        st.session_state.firebase_initialized = False
-        
-        # Mock Firestore and Auth for local development if real Firebase fails
-        class MockFirestoreClient:
-            def collection(self, path):
-                return MockCollectionRef(path)
-
-        class MockCollectionRef:
-            def __init__(self, path):
-                self.path = path
-                self.data = {} # Simple in-memory storage for mock
-                # Simulate loading existing data if any (for persistence within mock session)
-                if path in st.session_state.mock_db_data:
-                    self.data = st.session_state.mock_db_data[path]
-
-            def document(self, doc_id):
-                return MockDocumentRef(self, doc_id)
-
-            def get(self): # For collection.get() to fetch all documents
-                class MockDocument: # Represents a document within a query snapshot
-                    def __init__(self, id, data):
-                        self.id = id
-                        self._data = data
-                    def to_dict(self):
-                        return self._data
-                
-                mock_docs = []
-                for doc_id, doc_data in self.data.items():
-                    mock_docs.append(MockDocument(doc_id, doc_data))
-                
-                class MockQuerySnapshot: # Represents the result of a collection.get()
-                    def __init__(self, docs):
-                        self.docs = docs
-                return MockQuerySnapshot(mock_docs)
-
-
-        class MockDocumentRef:
-            def __init__(self, collection_ref, doc_id):
-                self.collection_ref = collection_ref
-                self.doc_id = doc_id
-
-            def get(self):
-                class MockDocumentSnapshot:
-                    def __init__(self, exists, data):
-                        self.exists = exists
-                        self._data = data
-                    def to_dict(self):
-                        return self._data
-                
-                data = self.collection_ref.data.get(self.doc_id)
-                return MockDocumentSnapshot(data is not None, data)
-
-            def set(self, data, merge=False):
-                self.collection_ref.data[self.doc_id] = data
-                # Persist mock data across reruns for this specific path
-                st.session_state.mock_db_data[self.collection_ref.path] = self.collection_ref.data
-                return True # Simulate success
-
-        # Initialize mock data storage
-        if 'mock_db_data' not in st.session_state:
-            st.session_state.mock_db_data = {}
-
-        st.session_state.db = MockFirestoreClient()
-        st.session_state.auth = None # No mock auth needed for this feature right now
-        st.session_state.app_id = os.environ.get('__app_id', 'default-app-id') # Fallback for app_id
-
+# --- Firebase related code removed as per user request ---
 # Initialize session state for Centre Superintendent reports if not already present
 if 'cs_reports' not in st.session_state:
     st.session_state.cs_reports = {}
 
-# Load data
+# Load data from CSV files (sitting_plan.csv, timetable.csv)
 def load_data():
     # Check if files exist before attempting to read them
     if os.path.exists("sitting_plan.csv") and os.path.exists("timetable.csv"):
@@ -126,7 +35,7 @@ def load_data():
         # Return empty DataFrames if files are not found
         return pd.DataFrame(), pd.DataFrame()
 
-# Save uploaded files
+# Save uploaded files (for admin panel)
 def save_uploaded_file(uploaded_file, filename):
     try:
         with open(filename, "wb") as f:
@@ -148,36 +57,60 @@ def cs_login():
     pwd = st.text_input("CS Password", type="password")
     return user == "cs_admin" and pwd == "cs_pass123"
 
-# Firestore helper functions
-def get_cs_reports_collection(db, app_id):
-    # For private data, typically users/{userId}/collection
-    # For this demo, we'll use a fixed user ID or a simple path
-    # In a real app, you'd get the actual authenticated user ID
-    user_id = "cs_user_demo" # Placeholder user ID for demo purposes
-    return db.collection(f"artifacts/{app_id}/users/{user_id}/cs_reports")
+# --- CSV Helper Functions for CS Reports ---
+def load_cs_reports_csv():
+    if os.path.exists(CS_REPORTS_FILE):
+        try:
+            df = pd.read_csv(CS_REPORTS_FILE)
+            # Convert string representations of lists back to actual lists
+            for col in ['absent_roll_numbers', 'ufm_roll_numbers']:
+                if col in df.columns:
+                    df[col] = df[col].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else [])
+            return df
+        except Exception as e:
+            st.error(f"Error loading CS reports from CSV: {e}")
+            return pd.DataFrame(columns=['report_key', 'date', 'shift', 'room_num', 'paper_code', 'paper_name', 'invigilators', 'absent_roll_numbers', 'ufm_roll_numbers'])
+    else:
+        return pd.DataFrame(columns=['report_key', 'date', 'shift', 'room_num', 'paper_code', 'paper_name', 'invigilators', 'absent_roll_numbers', 'ufm_roll_numbers'])
 
-def save_cs_report_firestore(db, app_id, report_key, data):
+def save_cs_report_csv(report_key, data):
+    reports_df = load_cs_reports_csv()
+    
+    # Convert lists to string representation for CSV storage
+    data_for_df = data.copy()
+    data_for_df['absent_roll_numbers'] = str(data_for_df.get('absent_roll_numbers', []))
+    data_for_df['ufm_roll_numbers'] = str(data_for_df.get('ufm_roll_numbers', []))
+
+    # Convert the single data dictionary to a DataFrame row
+    new_row_df = pd.DataFrame([data_for_df])
+
+    # Check if report_key already exists in the DataFrame
+    if report_key in reports_df['report_key'].values:
+        # Update existing record
+        # Find the index of the existing row
+        idx_to_update = reports_df[reports_df['report_key'] == report_key].index[0]
+        # Update values in that row using .loc
+        for col, val in data_for_df.items():
+            reports_df.loc[idx_to_update, col] = val
+    else:
+        # Add new record
+        reports_df = pd.concat([reports_df, new_row_df], ignore_index=True)
+
     try:
-        collection_ref = get_cs_reports_collection(db, app_id)
-        collection_ref.document(report_key).set(data)
-        return True, "Report saved to Firestore successfully!"
+        reports_df.to_csv(CS_REPORTS_FILE, index=False)
+        return True, "Report saved to CSV successfully!"
     except Exception as e:
-        return False, f"Error saving report to Firestore: {e}"
+        return False, f"Error saving report to CSV: {e}"
 
-def load_cs_report_firestore(db, app_id, report_key):
-    try:
-        collection_ref = get_cs_reports_collection(db, app_id)
-        doc_ref = collection_ref.document(report_key)
-        doc = doc_ref.get()
-        if doc.exists:
-            return True, doc.to_dict()
-        else:
-            return False, {} # No existing report
-    except Exception as e:
-        return False, f"Error loading report from Firestore: {e}"
+def load_single_cs_report_csv(report_key):
+    reports_df = load_cs_reports_csv()
+    filtered_df = reports_df[reports_df['report_key'] == report_key]
+    if not filtered_df.empty:
+        return True, filtered_df.iloc[0].to_dict()
+    else:
+        return False, {}
 
-
-# Get all exams for a roll number
+# Get all exams for a roll number (Student View)
 def get_all_exams(roll_number, sitting_plan, timetable):
     student_exams = []
     roll_number_str = str(roll_number).strip() # Ensure consistent string comparison
@@ -218,7 +151,7 @@ def get_all_exams(roll_number, sitting_plan, timetable):
                 break
     return student_exams
 
-# Get sitting details for a specific roll number and date
+# Get sitting details for a specific roll number and date (Student View)
 def get_sitting_details(roll_number, date, sitting_plan, timetable):
     found_sittings = []
     roll_number_str = str(roll_number).strip()
@@ -279,7 +212,7 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                         })
     return found_sittings
 
-# Function to generate the room chart data for Excel
+# Function to generate the room chart data for Excel (Admin Panel)
 def generate_room_chart(date_str, shift, room_number, sitting_plan, timetable):
     # Get all exams scheduled for the given date and shift
     current_day_exams_tt = timetable[
@@ -439,7 +372,7 @@ def generate_room_chart(date_str, shift, room_number, sitting_plan, timetable):
 
     return excel_output_data, None
 
-# Function to get all students for a given date and shift in the requested text format
+# Function to get all students for a given date and shift in the requested text format (Admin Panel)
 # This function will now also return data suitable for Excel download
 def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, timetable):
     all_students_data = []
@@ -595,7 +528,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
 
     return final_text_output, None, excel_output_data
 
-# New function to get all students for a given date and shift, sorted by roll number
+# New function to get all students for a given date and shift, sorted by roll number (Admin Panel)
 def get_all_students_roll_number_wise_formatted(date_str, shift, sitting_plan, timetable):
     all_students_data = []
 
@@ -1033,10 +966,7 @@ elif menu == "Centre Superintendent Panel":
         # Load data for CS panel
         sitting_plan, timetable = load_data()
 
-        # Check Firebase initialization status
-        if not st.session_state.firebase_initialized:
-            st.error("Firebase not initialized. Cannot save/load reports permanently. Please check configuration.")
-            st.info("Ensure the environment provides necessary Firebase credentials (e.g., in a Google Cloud environment).")
+        # No Firebase check needed here, as we are using CSV
         
         if sitting_plan.empty or timetable.empty:
             st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' via the Admin Panel to use this feature.")
@@ -1106,13 +1036,11 @@ elif menu == "Centre Superintendent Panel":
                             selected_paper_code = selected_paper_code_with_name.split(" (")[0].strip()
                             selected_paper_name = selected_paper_code_with_name.split(" (")[1].replace(")", "").strip()
 
-                            # Create a unique key for Firestore document ID
+                            # Create a unique key for CSV row ID
                             report_key = f"{report_date.strftime('%Y%m%d')}_{report_shift.lower()}_{selected_room_num}_{selected_paper_code}"
 
-                            # Load existing report from Firestore
-                            loaded_success, loaded_report = load_cs_report_firestore(
-                                st.session_state.db, st.session_state.app_id, report_key
-                            )
+                            # Load existing report from CSV
+                            loaded_success, loaded_report = load_single_cs_report_csv(report_key)
                             if loaded_success:
                                 st.info("Existing report loaded.")
                             else:
@@ -1164,6 +1092,7 @@ elif menu == "Centre Superintendent Panel":
                             with col1:
                                 if st.button("Save Report", key="save_cs_report"):
                                     report_data = {
+                                        'report_key': report_key, # Add report_key to data
                                         'date': report_date.strftime('%d-%m-%Y'),
                                         'shift': report_shift,
                                         'room_num': selected_room_num,
@@ -1173,9 +1102,7 @@ elif menu == "Centre Superintendent Panel":
                                         'absent_roll_numbers': absent_roll_numbers_selected, # Store as list
                                         'ufm_roll_numbers': ufm_roll_numbers_selected # Store as list
                                     }
-                                    success, message = save_cs_report_firestore(
-                                        st.session_state.db, st.session_state.app_id, report_key, report_data
-                                    )
+                                    success, message = save_cs_report_csv(report_key, report_data)
                                     if success:
                                         st.success(message)
                                     else:
@@ -1185,44 +1112,36 @@ elif menu == "Centre Superintendent Panel":
                             st.markdown("---")
                             st.subheader("All Saved Reports (for debugging/review)")
                             
-                            # Fetch all reports for the current CS user
-                            if st.session_state.firebase_initialized and st.session_state.db:
-                                try:
-                                    all_reports_docs = get_cs_reports_collection(st.session_state.db, st.session_state.app_id).get()
-                                    all_reports_data = []
-                                    for doc in all_reports_docs:
-                                        report_dict = doc.to_dict()
-                                        report_dict['Report Key'] = doc.id
-                                        all_reports_data.append(report_dict)
-                                    
-                                    if all_reports_data:
-                                        df_all_reports = pd.DataFrame(all_reports_data)
-                                        # Reorder columns for better readability
-                                        display_cols = [
-                                            "Date", "Shift", "Room", "Paper Code", "Paper Name",
-                                            "Invigilators", "Absent Roll Numbers", "UFM Roll Numbers", "Report Key"
-                                        ]
-                                        # Map internal keys to display keys
-                                        df_all_reports.rename(columns={
-                                            'date': 'Date', 'shift': 'Shift', 'room_num': 'Room',
-                                            'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
-                                            'invigilators': 'Invigilators',
-                                            'absent_roll_numbers': 'Absent Roll Numbers',
-                                            'ufm_roll_numbers': 'UFM Roll Numbers'
-                                        }, inplace=True)
-                                        
-                                        # Ensure all display_cols exist, fill missing with empty string
-                                        for col in display_cols:
-                                            if col not in df_all_reports.columns:
-                                                df_all_reports[col] = ""
-                                        
-                                        st.dataframe(df_all_reports[display_cols])
-                                    else:
-                                        st.info("No reports saved yet.")
-                                except Exception as e:
-                                    st.error(f"Error fetching all reports: {e}")
+                            # Fetch all reports for the current CS user from CSV
+                            all_reports_df = load_cs_reports_csv()
+                            
+                            if not all_reports_df.empty:
+                                # Reorder columns for better readability
+                                display_cols = [
+                                    "date", "shift", "room_num", "paper_code", "paper_name",
+                                    "invigilators", "absent_roll_numbers", "ufm_roll_numbers", "report_key"
+                                ]
+                                # Map internal keys to display keys
+                                df_all_reports_display = all_reports_df.rename(columns={
+                                    'date': 'Date', 'shift': 'Shift', 'room_num': 'Room',
+                                    'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
+                                    'invigilators': 'Invigilators',
+                                    'absent_roll_numbers': 'Absent Roll Numbers',
+                                    'ufm_roll_numbers': 'UFM Roll Numbers',
+                                    'report_key': 'Report Key'
+                                })
+                                
+                                # Ensure all display_cols exist, fill missing with empty string
+                                for col in display_cols:
+                                    if col not in df_all_reports_display.columns:
+                                        df_all_reports_display[col] = ""
+                                
+                                st.dataframe(df_all_reports_display[
+                                    ['Date', 'Shift', 'Room', 'Paper Code', 'Paper Name',
+                                     'Invigilators', 'Absent Roll Numbers', 'UFM Roll Numbers', 'Report Key']
+                                ])
                             else:
-                                st.info("Firebase not connected. Cannot display saved reports.")
+                                st.info("No reports saved yet.")
 
     else:
         st.warning("Enter valid Centre Superintendent credentials.")
