@@ -1180,7 +1180,7 @@ elif menu == "Centre Superintendent Panel":
                                         st.success(message)
                                     else:
                                         st.error(message)
-                                    st.experimental_rerun() # Rerun to refresh the UI with saved data
+                                    st.rerun() # Rerun to refresh the UI with saved data
 
                             st.markdown("---")
                             st.subheader("All Saved Reports (for debugging/review)")
