@@ -222,10 +222,10 @@ def get_all_exams(roll_number, sitting_plan, timetable):
                 # Find all matching entries in the timetable for this paper and class
                 # Removed the 'Shift' matching condition here as per user request
                 matches_in_timetable = timetable[
-                    (timetable["Paper"].str.strip() == paper) &
-                    (timetable["Paper Code"].str.strip() == paper_code) &
-                    (timetable["Paper Name"].str.strip() == paper_name) &
-                    (timetable["Class"].str.strip().str.lower() == _class.lower())
+                    (timetable["Paper"].astype(str).str.strip() == paper) &
+                    (timetable["Paper Code"].astype(str).str.strip() == paper_code) &
+                    (timetable["Paper Name"].astype(str).str.strip() == paper_name) &
+                    (timetable["Class"].astype(str).str.strip().str.lower() == _class.lower())
                 ]
 
                 # Add all found timetable matches for this student's paper to the list
@@ -265,11 +265,11 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                 # Find if this paper's date matches the search in the timetable
                 # Removed the 'Shift' matching condition here as per user request
                 matches_in_timetable = timetable[
-                    (timetable["Class"].str.strip().str.lower() == _class.lower()) &
-                    (timetable["Paper"].str.strip() == paper) &
-                    (timetable["Paper Code"].str.strip() == paper_code) &
-                    (timetable["Paper Name"].str.strip() == paper_name) &
-                    (timetable["Date"].str.strip() == date_str) # Match against the provided date
+                    (timetable["Class"].astype(str).str.strip().str.lower() == _class.lower()) &
+                    (timetable["Paper"].astype(str).str.strip() == paper) &
+                    (timetable["Paper Code"].astype(str).str.strip() == paper_code) &
+                    (timetable["Paper Name"].astype(str).str.strip() == paper_name) &
+                    (timetable["Date"].astype(str).str.strip() == date_str) # Match against the provided date
                 ]
 
                 if not matches_in_timetable.empty:
@@ -291,7 +291,7 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                             seat_num_display = "N/A" # Column itself is missing
 
                         found_sittings.append({
-                            "Room Number": sp_row["Room Number"], # Note: "Room Number " has a trailing space in CSV
+                            "Room Number": sp_row["Room Number"],
                             "Seat Number": seat_num_display, # Use display value
                             "Class": _class,
                             "Paper": paper,
@@ -507,7 +507,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
         ]
 
         for _, sp_row in matching_students_sp.iterrows():
-            room_num = str(sp_row["Room Number"]).strip() # Note the space
+            room_num = str(sp_row["Room Number"]).strip()
             
             for i in range(1, 11): # Iterate through Roll Number 1 to 10
                 roll_col = f"Roll Number {i}"
@@ -772,10 +772,10 @@ def display_report_panel():
             
             expected_students_data.append({
                 'Room Number': str(row['Room Number']).strip(),
-                'Class': str(row['Class']).strip().lower(),
-                'Paper': str(row['Paper']).strip().lower(),
-                'Paper Code': str(row['Paper Code']).strip().lower(),
-                'Paper Name': str(row['Paper Name']).strip().lower(),
+                'Class': str(row['Class']).strip(), # Keep as string, lower() later
+                'Paper': str(row['Paper']).strip(),   # Keep as string, lower() later
+                'Paper Code': str(row['Paper Code']).strip(), # Keep as string, lower() later
+                'Paper Name': str(row['Paper Name']).strip(), # Keep as string, lower() later
                 'Mode': str(row.get('Mode', '')).strip(),
                 'Type': str(row.get('Type', '')).strip(),
                 'expected_students_count': expected_count
@@ -784,15 +784,15 @@ def display_report_panel():
 
     # Standardize merge keys in all_reports_df
     all_reports_df['room_num'] = all_reports_df['room_num'].astype(str).str.strip()
-    all_reports_df['paper_code'] = all_reports_df['paper_code'].astype(str).str.strip().lower()
-    all_reports_df['paper_name'] = all_reports_df['paper_name'].astype(str).str.strip().lower()
-    all_reports_df['class'] = all_reports_df['class'].astype(str).str.strip().lower()
+    all_reports_df['paper_code'] = all_reports_df['paper_code'].astype(str).str.strip().str.lower()
+    all_reports_df['paper_name'] = all_reports_df['paper_name'].astype(str).str.strip().str.lower()
+    all_reports_df['class'] = all_reports_df['class'].astype(str).str.strip().str.lower()
 
-    # Standardize merge keys in expected_students_df (already done during creation, but ensuring consistency for safety)
+    # Standardize merge keys in expected_students_df (apply .str.lower() here)
     expected_students_df['Room Number'] = expected_students_df['Room Number'].astype(str).str.strip()
-    expected_students_df['Paper Code'] = expected_students_df['Paper Code'].astype(str).str.strip().lower()
-    expected_students_df['Paper Name'] = expected_students_df['Paper Name'].astype(str).str.strip().lower()
-    expected_students_df['Class'] = expected_students_df['Class'].astype(str).str.strip().lower()
+    expected_students_df['Paper Code'] = expected_students_df['Paper Code'].astype(str).str.strip().str.lower()
+    expected_students_df['Paper Name'] = expected_students_df['Paper Name'].astype(str).str.strip().str.lower()
+    expected_students_df['Class'] = expected_students_df['Class'].astype(str).str.strip().str.lower()
 
 
     # Merge all_reports_df with expected_students_df
@@ -860,8 +860,8 @@ def display_report_panel():
         expected_students=('expected_students_count', 'sum')
     ).reset_index()
     expected_by_paper.rename(columns={'Paper Name': 'paper_name', 'Paper Code': 'paper_code'}, inplace=True)
-    expected_by_paper['paper_name'] = expected_by_paper['paper_name'].astype(str).str.strip().lower()
-    expected_by_paper['paper_code'] = expected_by_paper['paper_code'].astype(str).str.strip().lower()
+    expected_by_paper['paper_name'] = expected_by_paper['paper_name'].astype(str).str.strip().str.lower()
+    expected_by_paper['paper_code'] = expected_by_paper['paper_code'].astype(str).str.strip().str.lower()
 
     # Group reported data by paper
     reported_by_paper = merged_reports_df.groupby(['paper_name', 'paper_code']).agg(
@@ -1083,7 +1083,8 @@ if menu == "Student View":
     else:
         option = st.radio("Choose Search Option:", [
             "Search by Roll Number and Date",
-            "Get Full Exam Schedule by Roll Number"
+            "Get Full Exam Schedule by Roll Number",
+            "View Full Timetable" # New option for student view
         ])
 
         if option == "Search by Roll Number and Date":
@@ -1115,6 +1116,10 @@ if menu == "Student View":
                     st.write(schedule)
                 else:
                     st.warning("No exam records found for this roll number.")
+        
+        elif option == "View Full Timetable": # New section for timetable view
+            st.subheader("Full Examination Timetable")
+            st.dataframe(timetable)
 
 
 elif menu == "Admin Panel":
@@ -1402,12 +1407,16 @@ elif menu == "Admin Panel":
 
                     if st.button("Apply Updates and Save Timetable"):
                         timetable_copy = timetable.copy()
-                        timetable_copy['Date'] = update_date.strftime('%d-%m-%Y')
-                        timetable_copy['Shift'] = update_shift
-                        
-                        # Ensure 'Time' column exists before assigning
+                        # Ensure 'Date', 'Shift', 'Time' columns exist before assigning
+                        if 'Date' not in timetable_copy.columns:
+                            timetable_copy['Date'] = ""
+                        if 'Shift' not in timetable_copy.columns:
+                            timetable_copy['Shift'] = ""
                         if 'Time' not in timetable_copy.columns:
                             timetable_copy['Time'] = ""
+
+                        timetable_copy['Date'] = update_date.strftime('%d-%m-%Y')
+                        timetable_copy['Shift'] = update_shift
                         timetable_copy['Time'] = update_time
 
                         if save_uploaded_file(timetable_copy, "timetable.csv"):
@@ -1437,7 +1446,7 @@ elif menu == "Centre Superintendent Panel":
         if sitting_plan.empty or timetable.empty:
             st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' via the Admin Panel to use this feature.")
         else:
-            cs_panel_option = st.radio("Select CS Task:", ["Report Exam Session", "Manage Exam Team & Shift Assignments"])
+            cs_panel_option = st.radio("Select CS Task:", ["Report Exam Session", "Manage Exam Team & Shift Assignments", "View Full Timetable"]) # New option for CS view
 
             if cs_panel_option == "Manage Exam Team & Shift Assignments":
                 st.subheader("👥 Manage Exam Team Members")
@@ -1778,6 +1787,10 @@ elif menu == "Centre Superintendent Panel":
                                     ])
                                 else:
                                     st.info("No reports saved yet.")
+
+            elif cs_panel_option == "View Full Timetable": # New section for CS timetable view
+                st.subheader("Full Examination Timetable")
+                st.dataframe(timetable)
 
     else:
         st.warning("Enter valid Centre Superintendent credentials.")
