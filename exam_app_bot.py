@@ -11,6 +11,8 @@ import ast # Added for literal_eval to convert string representations of lists b
 
 # --- Configuration ---
 CS_REPORTS_FILE = "cs_reports.csv"
+EXAM_TEAM_MEMBERS_FILE = "exam_team_members.csv"
+SHIFT_ASSIGNMENTS_FILE = "shift_assignments.csv"
 
 # --- Firebase related code removed as per user request ---
 # Initialize session state for Centre Superintendent reports if not already present
@@ -67,17 +69,19 @@ def load_cs_reports_csv():
                 df['class'] = ""
             
             # Convert string representations of lists back to actual lists
-            for col in ['absent_roll_numbers', 'ufm_roll_numbers']:
+            for col in ['absent_roll_numbers', 'ufm_roll_numbers', 'invigilators']: # Added 'invigilators'
                 if col in df.columns:
-                    # Use ast.literal_eval for safe conversion of stringified lists
-                    df[col] = df[col].apply(lambda x: ast.literal_eval(x) if pd.notna(x) and x.strip() else [])
+                    # Convert to string, then handle 'nan' and empty strings before literal_eval
+                    df[col] = df[col].astype(str).apply(
+                        lambda x: ast.literal_eval(x) if x.strip() and x.strip().lower() != 'nan' else []
+                    )
             return df
         except Exception as e:
             st.error(f"Error loading CS reports from CSV: {e}")
-            # Ensure 'class' column is present in the empty DataFrame for consistency
+            # Ensure 'class' and 'invigilators' columns are present in the empty DataFrame for consistency
             return pd.DataFrame(columns=['report_key', 'date', 'shift', 'room_num', 'paper_code', 'paper_name', 'class', 'invigilators', 'absent_roll_numbers', 'ufm_roll_numbers'])
     else:
-        # Ensure 'class' column is present in the empty DataFrame for consistency
+        # Ensure 'class' and 'invigilators' columns are present in the empty DataFrame for consistency
         return pd.DataFrame(columns=['report_key', 'date', 'shift', 'room_num', 'paper_code', 'paper_name', 'class', 'invigilators', 'absent_roll_numbers', 'ufm_roll_numbers'])
 
 def save_cs_report_csv(report_key, data):
@@ -87,6 +91,7 @@ def save_cs_report_csv(report_key, data):
     data_for_df = data.copy()
     data_for_df['absent_roll_numbers'] = str(data_for_df.get('absent_roll_numbers', []))
     data_for_df['ufm_roll_numbers'] = str(data_for_df.get('ufm_roll_numbers', []))
+    data_for_df['invigilators'] = str(data_for_df.get('invigilators', [])) # Convert invigilators list to string
 
     # Convert the single data dictionary to a DataFrame row
     new_row_df = pd.DataFrame([data_for_df])
@@ -116,6 +121,74 @@ def load_single_cs_report_csv(report_key):
         return True, filtered_df.iloc[0].to_dict()
     else:
         return False, {}
+
+# --- Exam Team Members Functions ---
+def load_exam_team_members():
+    if os.path.exists(EXAM_TEAM_MEMBERS_FILE):
+        try:
+            df = pd.read_csv(EXAM_TEAM_MEMBERS_FILE)
+            return df['name'].tolist()
+        except Exception as e:
+            st.error(f"Error loading exam team members: {e}")
+            return []
+    return []
+
+def save_exam_team_members(members):
+    df = pd.DataFrame({'name': sorted(list(set(members)))}) # Remove duplicates and sort
+    try:
+        df.to_csv(EXAM_TEAM_MEMBERS_FILE, index=False)
+        return True, "Exam team members saved successfully!"
+    except Exception as e:
+        return False, f"Error saving exam team members: {e}"
+
+# --- Shift Assignments Functions ---
+def load_shift_assignments():
+    if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
+        try:
+            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE)
+            # Convert string representations of lists back to actual lists for roles
+            for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", "permanent_invigilator", "assistant_permanent_invigilator"]:
+                if role in df.columns:
+                    df[role] = df[role].apply(lambda x: ast.literal_eval(x) if pd.notna(x) and x.strip() else [])
+            return df
+        except Exception as e:
+            st.error(f"Error loading shift assignments: {e}")
+            return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 'assistant_center_superintendent', 'permanent_invigilator', 'assistant_permanent_invigilator'])
+    return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 'assistant_center_superintendent', 'permanent_invigilator', 'assistant_permanent_invigilator'])
+
+def save_shift_assignment(date, shift, assignments):
+    assignments_df = load_shift_assignments()
+    
+    # Create a unique key for the assignment
+    assignment_key = f"{date}_{shift}"
+
+    # Prepare data for DataFrame, converting lists to string representations
+    data_for_df = {
+        'date': date,
+        'shift': shift,
+        'senior_center_superintendent': str(assignments.get('senior_center_superintendent', [])),
+        'center_superintendent': str(assignments.get('center_superintendent', [])),
+        'assistant_center_superintendent': str(assignments.get('assistant_center_superintendent', [])),
+        'permanent_invigilator': str(assignments.get('permanent_invigilator', [])),
+        'assistant_permanent_invigilator': str(assignments.get('assistant_permanent_invigilator', []))
+    }
+    new_row_df = pd.DataFrame([data_for_df])
+
+    # Check if assignment_key already exists
+    if assignment_key in (assignments_df['date'] + '_' + assignments_df['shift']).values:
+        # Update existing record
+        idx_to_update = assignments_df[(assignments_df['date'] == date) & (assignments_df['shift'] == shift)].index[0]
+        for col, val in data_for_df.items():
+            assignments_df.loc[idx_to_update, col] = val
+    else:
+        # Add new record
+        assignments_df = pd.concat([assignments_df, new_row_df], ignore_index=True)
+    
+    try:
+        assignments_df.to_csv(SHIFT_ASSIGNMENTS_FILE, index=False)
+        return True, "Shift assignments saved successfully!"
+    except Exception as e:
+        return False, f"Error saving shift assignments: {e}"
 
 # Get all exams for a roll number (Student View)
 def get_all_exams(roll_number, sitting_plan, timetable):
@@ -303,7 +376,7 @@ def generate_room_chart(date_str, shift, room_number, sitting_plan, timetable):
 
     # --- Header Section ---
     excel_output_data.append(["जीवाजी विश्वविद्यालय ग्वालियर"])
-    excel_output_data.append(["परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरैना (म. प्र.) कोड :- G107"])
+    excel_output_data.append(["परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107"])
     excel_output_data.append([f"Examination {datetime.datetime.now().year}"]) # More general
     excel_output_data.append([]) # Blank line
     excel_output_data.append(["दिनांक :-", date_str])
@@ -1301,243 +1374,346 @@ elif menu == "Centre Superintendent Panel":
         if sitting_plan.empty or timetable.empty:
             st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' via the Admin Panel to use this feature.")
         else:
-            st.subheader("📝 Report Exam Session")
+            cs_panel_option = st.radio("Select CS Task:", ["Report Exam Session", "Manage Exam Team & Shift Assignments"])
 
-            # Date and Shift selection
-            report_date = st.date_input("Select Date", value=datetime.date.today(), key="cs_report_date")
-            report_shift = st.selectbox("Select Shift", ["Morning", "Evening"], key="cs_report_shift")
-
-            # Filter timetable for selected date and shift to get available exams
-            available_exams_tt = timetable[
-                (timetable["Date"].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
-                (timetable["Shift"].astype(str).str.strip().str.lower() == report_shift.lower())
-            ]
-
-            if available_exams_tt.empty:
-                st.warning("No exams scheduled for the selected date and shift.")
-            else:
-                # Get unique exam sessions (Room + Paper Code) from sitting_plan that match timetable
+            if cs_panel_option == "Manage Exam Team & Shift Assignments":
+                st.subheader("👥 Manage Exam Team Members")
                 
-                # Prepare sitting_plan for merging by creating a common key
-                sitting_plan_temp = sitting_plan.copy()
-                sitting_plan_temp['merge_key'] = sitting_plan_temp['Class'].astype(str).str.strip().str.lower() + "_" + \
-                                                  sitting_plan_temp['Paper'].astype(str).str.strip() + "_" + \
-                                                  sitting_plan_temp['Paper Code'].astype(str).str.strip() + "_" + \
-                                                  sitting_plan_temp['Paper Name'].astype(str).str.strip()
-
-                # Prepare available_exams_tt for merging
-                available_exams_tt_temp = available_exams_tt.copy()
-                available_exams_tt_temp['merge_key'] = available_exams_tt_temp['Class'].astype(str).str.strip().str.lower() + "_" + \
-                                                        available_exams_tt_temp['Paper'].astype(str).str.strip() + "_" + \
-                                                        available_exams_tt_temp['Paper Code'].astype(str).str.strip() + "_" + \
-                                                        available_exams_tt_temp['Paper Name'].astype(str).str.strip()
-
-                merged_data = pd.merge(
-                    available_exams_tt_temp,
-                    sitting_plan_temp,
-                    on='merge_key',
-                    how='inner',
-                    suffixes=('_tt', '_sp')
-                )
-                
-                if merged_data.empty:
-                    st.warning("No sitting plan data found for the selected exams. Ensure data consistency.")
-                else:
-                    # Create a unique identifier for each exam session (Room - Paper Code (Paper Name))
-                    merged_data['exam_session_id'] = merged_data['Room Number '].astype(str).str.strip() + " - " + \
-                                                      merged_data['Paper Code_tt'].astype(str).str.strip() + " (" + \
-                                                      merged_data['Paper Name_tt'].astype(str).str.strip() + ")"
-                    
-                    unique_exam_sessions = merged_data[['Room Number ', 'Paper Code_tt', 'Paper Name_tt', 'exam_session_id']].drop_duplicates().sort_values(by='exam_session_id')
-                    
-                    if unique_exam_sessions.empty:
-                        st.warning("No unique exam sessions found for the selected date and shift.")
+                current_members = load_exam_team_members()
+                new_member_name = st.text_input("Add New Team Member Name")
+                if st.button("Add Member"):
+                    if new_member_name and new_member_name not in current_members:
+                        current_members.append(new_member_name)
+                        success, msg = save_exam_team_members(current_members)
+                        if success:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    elif new_member_name:
+                        st.warning("Member already exists.")
                     else:
-                        selected_exam_session_option = st.selectbox(
-                            "Select Exam Session (Room - Paper Code (Paper Name))",
-                            [""] + unique_exam_sessions['exam_session_id'].tolist(),
-                            key="cs_exam_session_select"
+                        st.warning("Please enter a name.")
+
+                if current_members:
+                    st.write("Current Team Members:")
+                    st.write(current_members)
+                    
+                    member_to_remove = st.selectbox("Select Member to Remove", [""] + current_members)
+                    if st.button("Remove Selected Member"):
+                        if member_to_remove:
+                            current_members.remove(member_to_remove)
+                            success, msg = save_exam_team_members(current_members)
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                        else:
+                            st.warning("Please select a member to remove.")
+                else:
+                    st.info("No team members added yet.")
+
+                st.markdown("---")
+                st.subheader("🗓️ Assign Roles for Exam Shift")
+
+                assignment_date = st.date_input("Select Date for Assignment", value=datetime.date.today(), key="assignment_date")
+                assignment_shift = st.selectbox("Select Shift for Assignment", ["Morning", "Evening"], key="assignment_shift")
+
+                all_team_members = load_exam_team_members()
+                if not all_team_members:
+                    st.warning("Please add exam team members first in the 'Manage Exam Team Members' section.")
+                else:
+                    current_assignments_df = load_shift_assignments()
+                    current_assignment_for_shift = current_assignments_df[
+                        (current_assignments_df['date'] == assignment_date.strftime('%d-%m-%Y')) &
+                        (current_assignments_df['shift'] == assignment_shift)
+                    ]
+                    
+                    loaded_senior_cs = []
+                    loaded_cs = []
+                    loaded_assist_cs = []
+                    loaded_perm_inv = []
+                    loaded_assist_perm_inv = []
+
+                    if not current_assignment_for_shift.empty:
+                        loaded_senior_cs = current_assignment_for_shift.iloc[0].get('senior_center_superintendent', [])
+                        loaded_cs = current_assignment_for_shift.iloc[0].get('center_superintendent', [])
+                        loaded_assist_cs = current_assignment_for_shift.iloc[0].get('assistant_center_superintendent', [])
+                        loaded_perm_inv = current_assignment_for_shift.iloc[0].get('permanent_invigilator', [])
+                        loaded_assist_perm_inv = current_assignment_for_shift.iloc[0].get('assistant_permanent_invigilator', [])
+
+                    selected_senior_cs = st.multiselect("Senior Center Superintendent (Max 1)", all_team_members, default=loaded_senior_cs, max_selections=1)
+                    selected_cs = st.multiselect("Center Superintendent (Max 1)", all_team_members, default=loaded_cs, max_selections=1)
+                    selected_assist_cs = st.multiselect("Assistant Center Superintendent (Max 3)", all_team_members, default=loaded_assist_cs, max_selections=3)
+                    selected_perm_inv = st.multiselect("Permanent Invigilator (Max 1)", all_team_members, default=loaded_perm_inv, max_selections=1)
+                    selected_assist_perm_inv = st.multiselect("Assistant Permanent Invigilator (Max 5)", all_team_members, default=loaded_assist_perm_inv, max_selections=5)
+
+                    if st.button("Save Shift Assignments"):
+                        all_selected_members = (
+                            selected_senior_cs + selected_cs + selected_assist_cs +
+                            selected_perm_inv + selected_assist_perm_inv
                         )
-
-                        if selected_exam_session_option:
-                            # Extract room_number, paper_code, paper_name from the selected option
-                            selected_room_num = selected_exam_session_option.split(" - ")[0].strip()
-                            selected_paper_code_with_name = selected_exam_session_option.split(" - ")[1].strip()
-                            selected_paper_code = selected_paper_code_with_name.split(" (")[0].strip()
-                            selected_paper_name = selected_paper_code_with_name.split(" (")[1].replace(")", "").strip()
-
-                            # Find the corresponding class for the selected session
-                            # Assuming for a given room, paper_code, paper_name, there's a consistent class.
-                            matching_session_info = merged_data[
-                                (merged_data['Room Number '].astype(str).str.strip() == selected_room_num) &
-                                (merged_data['Paper Code_tt'].astype(str).str.strip() == selected_paper_code) &
-                                (merged_data['Paper Name_tt'].astype(str).str.strip() == selected_paper_name)
-                            ]
-                            selected_class = ""
-                            if not matching_session_info.empty:
-                                selected_class = str(matching_session_info.iloc[0]['Class_sp']).strip() # Use Class_sp from sitting plan
-
-                            # Create a unique key for CSV row ID
-                            report_key = f"{report_date.strftime('%Y%m%d')}_{report_shift.lower()}_{selected_room_num}_{selected_paper_code}"
-
-                            # Load existing report from CSV
-                            loaded_success, loaded_report = load_single_cs_report_csv(report_key)
-                            if loaded_success:
-                                st.info("Existing report loaded.")
+                        if len(all_selected_members) != len(set(all_selected_members)):
+                            st.error("Error: A team member cannot be assigned to multiple roles for the same shift.")
+                        else:
+                            assignments_to_save = {
+                                'senior_center_superintendent': selected_senior_cs,
+                                'center_superintendent': selected_cs,
+                                'assistant_center_superintendent': selected_assist_cs,
+                                'permanent_invigilator': selected_perm_inv,
+                                'assistant_permanent_invigilator': selected_assist_perm_inv
+                            }
+                            success, msg = save_shift_assignment(assignment_date.strftime('%d-%m-%Y'), assignment_shift, assignments_to_save)
+                            if success:
+                                st.success(msg)
+                                st.rerun()
                             else:
-                                st.info("No existing report found for this session. Starting new.")
-                                loaded_report = {} # Ensure it's an empty dict if not found
+                                st.error(msg)
+                    
+                    st.markdown("---")
+                    st.subheader("Current Shift Assignments")
+                    display_assignments_df = load_shift_assignments()
+                    if not display_assignments_df.empty:
+                        st.dataframe(display_assignments_df)
+                    else:
+                        st.info("No shift assignments saved yet.")
 
-                            # Get all expected roll numbers for this specific session
-                            expected_students_for_session = []
-                            # Filter merged_data for the selected session
-                            session_students = merged_data[
-                                (merged_data['Room Number '].astype(str).str.strip() == selected_room_num) &
-                                (merged_data['Paper Code_tt'].astype(str).str.strip() == selected_paper_code) &
-                                (merged_data['Paper Name_tt'].astype(str).str.strip() == selected_paper_name)
-                            ]
 
-                            for _, row in session_students.iterrows():
-                                for i in range(1, 11):
-                                    roll_col = f"Roll Number {i}"
-                                    if roll_col in row.index and pd.notna(row[roll_col]) and str(row[roll_col]).strip() != '':
-                                        expected_students_for_session.append(str(row[roll_col]).strip())
-                            
-                            expected_students_for_session = sorted(list(set(expected_students_for_session))) # Remove duplicates and sort
+            elif cs_panel_option == "Report Exam Session":
+                st.subheader("📝 Report Exam Session")
 
-                            st.write(f"**Reporting for:** Room {selected_room_num}, Paper: {selected_paper_name} ({selected_paper_code})")
+                # Date and Shift selection
+                report_date = st.date_input("Select Date", value=datetime.date.today(), key="cs_report_date")
+                report_shift = st.selectbox("Select Shift", ["Morning", "Evening"], key="cs_report_shift")
 
-                            invigilators_input = st.text_area(
-                                "Invigilator Names (comma-separated)", 
-                                value=loaded_report.get('invigilators', ""), 
-                                key="invigilators_input"
+                # Filter timetable for selected date and shift to get available exams
+                available_exams_tt = timetable[
+                    (timetable["Date"].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
+                    (timetable["Shift"].astype(str).str.strip().str.lower() == report_shift.lower())
+                ]
+
+                if available_exams_tt.empty:
+                    st.warning("No exams scheduled for the selected date and shift.")
+                else:
+                    # Get unique exam sessions (Room + Paper Code) from sitting_plan that match timetable
+                    
+                    # Prepare sitting_plan for merging by creating a common key
+                    sitting_plan_temp = sitting_plan.copy()
+                    sitting_plan_temp['merge_key'] = sitting_plan_temp['Class'].astype(str).str.strip().str.lower() + "_" + \
+                                                      sitting_plan_temp['Paper'].astype(str).str.strip() + "_" + \
+                                                      sitting_plan_temp['Paper Code'].astype(str).str.strip() + "_" + \
+                                                      sitting_plan_temp['Paper Name'].astype(str).str.strip()
+
+                    # Prepare available_exams_tt for merging
+                    available_exams_tt_temp = available_exams_tt.copy()
+                    available_exams_tt_temp['merge_key'] = available_exams_tt_temp['Class'].astype(str).str.strip().str.lower() + "_" + \
+                                                            available_exams_tt_temp['Paper'].astype(str).str.strip() + "_" + \
+                                                            available_exams_tt_temp['Paper Code'].astype(str).str.strip() + "_" + \
+                                                            available_exams_tt_temp['Paper Name'].astype(str).str.strip()
+
+                    merged_data = pd.merge(
+                        available_exams_tt_temp,
+                        sitting_plan_temp,
+                        on='merge_key',
+                        how='inner',
+                        suffixes=('_tt', '_sp')
+                    )
+                    
+                    if merged_data.empty:
+                        st.warning("No sitting plan data found for the selected exams. Ensure data consistency.")
+                    else:
+                        # Create a unique identifier for each exam session (Room - Paper Code (Paper Name))
+                        merged_data['exam_session_id'] = merged_data['Room Number '].astype(str).str.strip() + " - " + \
+                                                          merged_data['Paper Code_tt'].astype(str).str.strip() + " (" + \
+                                                          merged_data['Paper Name_tt'].astype(str).str.strip() + ")"
+                        
+                        unique_exam_sessions = merged_data[['Room Number ', 'Paper Code_tt', 'Paper Name_tt', 'exam_session_id']].drop_duplicates().sort_values(by='exam_session_id')
+                        
+                        if unique_exam_sessions.empty:
+                            st.warning("No unique exam sessions found for the selected date and shift.")
+                        else:
+                            selected_exam_session_option = st.selectbox(
+                                "Select Exam Session (Room - Paper Code (Paper Name))",
+                                [""] + unique_exam_sessions['exam_session_id'].tolist(),
+                                key="cs_exam_session_select"
                             )
-                            
-                            # Multiselect for Absent Roll Numbers
-                            absent_roll_numbers_selected = st.multiselect(
-                                "Absent Roll Numbers", 
-                                options=expected_students_for_session, 
-                                default=loaded_report.get('absent_roll_numbers', []),
-                                key="absent_roll_numbers_multiselect"
-                            )
 
-                            # Multiselect for UFM Roll Numbers
-                            ufm_roll_numbers_selected = st.multiselect(
-                                "UFM (Unfair Means) Roll Numbers", 
-                                options=expected_students_for_session, 
-                                default=loaded_report.get('ufm_roll_numbers', []),
-                                key="ufm_roll_numbers_multiselect"
-                            )
+                            if selected_exam_session_option:
+                                # Extract room_number, paper_code, paper_name from the selected option
+                                selected_room_num = selected_exam_session_option.split(" - ")[0].strip()
+                                selected_paper_code_with_name = selected_exam_session_option.split(" - ")[1].strip()
+                                selected_paper_code = selected_paper_code_with_name.split(" (")[0].strip()
+                                selected_paper_name = selected_paper_code_with_name.split(" (")[1].replace(")", "").strip()
 
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("Save Report", key="save_cs_report"):
-                                    # --- Validation Logic ---
-                                    expected_set = set(expected_students_for_session)
-                                    absent_set = set(absent_roll_numbers_selected)
-                                    ufm_set = set(ufm_roll_numbers_selected)
-
-                                    validation_errors = []
-
-                                    # 1. All reported absent students must be in the expected list
-                                    if not absent_set.issubset(expected_set):
-                                        invalid_absent = list(absent_set.difference(expected_set))
-                                        validation_errors.append(f"Error: Absent roll numbers {invalid_absent} are not in the expected student list for this session.")
-
-                                    # 2. All reported UFM students must be in the expected list
-                                    if not ufm_set.issubset(expected_set):
-                                        invalid_ufm = list(ufm_set.difference(expected_set))
-                                        validation_errors.append(f"Error: UFM roll numbers {invalid_ufm} are not in the expected student list for this session.")
-
-                                    # 3. No student can be both absent and UFM
-                                    if not absent_set.isdisjoint(ufm_set):
-                                        overlap = list(absent_set.intersection(ufm_set))
-                                        validation_errors.append(f"Error: Roll numbers {overlap} are marked as both Absent and UFM. A student cannot be both.")
-                                    
-                                    # 4. Ensure all expected students are accounted for (present, absent, or UFM)
-                                    # Students who are present and not UFM = expected - absent - ufm (from expected)
-                                    accounted_for_set = absent_set.union(ufm_set)
-                                    if len(accounted_for_set) > len(expected_set):
-                                        validation_errors.append("Error: The total count of absent and UFM students exceeds the total expected students.")
-                                    elif len(accounted_for_set) < len(expected_set):
-                                        unaccounted_students = list(expected_set.difference(accounted_for_set))
-                                        if len(unaccounted_students) > 0:
-                                            # This means there are students who are expected but not reported as absent or UFM.
-                                            # These are implicitly "present and clean". This is usually fine.
-                                            # The user's request "total number of students become equal to present + absent + ufm case students"
-                                            # is satisfied if all students are categorized.
-                                            # If the intent is that *every single student* must be explicitly marked,
-                                            # then this 'unaccounted_students' check would be an error.
-                                            # Given the previous context, it's more about data integrity than explicit marking of every present student.
-                                            # However, if the sum of reported categories (absent + ufm + implicit present) doesn't match expected, it's an error.
-                                            # The current check ensures no over-reporting. The under-reporting (students not marked) is implied as "present and clean".
-                                            # Let's add a check if the total sum of categories doesn't match the expected.
-                                            # Total accounted for = (Expected - Absent - UFM) + Absent + UFM
-                                            # This is implicitly handled by the set operations.
-                                            # The most important part is that the sum of the *explicitly reported* categories (absent, UFM)
-                                            # plus the *implicitly present and clean* students must equal the total expected.
-                                            # The current logic for `total_present_students` and `total_answer_sheets_collected` in display_report_panel
-                                            # already handles this correctly.
-                                            # The specific validation here is to prevent inconsistent reporting.
-                                            pass # No error for unaccounted students, they are implicitly present and clean.
-
-
-                                    if validation_errors:
-                                        for err in validation_errors:
-                                            st.error(err)
-                                    else:
-                                        report_data = {
-                                            'report_key': report_key, # Add report_key to data
-                                            'date': report_date.strftime('%d-%m-%Y'),
-                                            'shift': report_shift,
-                                            'room_num': selected_room_num,
-                                            'paper_code': selected_paper_code,
-                                            'paper_name': selected_paper_name,
-                                            'class': selected_class, # Added 'class' here
-                                            'invigilators': invigilators_input,
-                                            'absent_roll_numbers': absent_roll_numbers_selected, # Store as list
-                                            'ufm_roll_numbers': ufm_roll_numbers_selected # Store as list
-                                        }
-                                        success, message = save_cs_report_csv(report_key, report_data)
-                                        if success:
-                                            st.success(message)
-                                        else:
-                                            st.error(message)
-                                        st.rerun() # Rerun to refresh the UI with saved data
-
-                            st.markdown("---")
-                            st.subheader("All Saved Reports (for debugging/review)")
-                            
-                            # Fetch all reports for the current CS user from CSV
-                            all_reports_df = load_cs_reports_csv()
-                            
-                            if not all_reports_df.empty:
-                                # Reorder columns for better readability
-                                display_cols = [
-                                    "date", "shift", "room_num", "paper_code", "paper_name", "class", # Added 'class' here
-                                    "invigilators", "absent_roll_numbers", "ufm_roll_numbers", "report_key"
+                                # Find the corresponding class for the selected session
+                                # Assuming for a given room, paper_code, paper_name, there's a consistent class.
+                                matching_session_info = merged_data[
+                                    (merged_data['Room Number '].astype(str).str.strip() == selected_room_num) &
+                                    (merged_data['Paper Code_tt'].astype(str).str.strip() == selected_paper_code) &
+                                    (merged_data['Paper Name_tt'].astype(str).str.strip() == selected_paper_name)
                                 ]
-                                # Map internal keys to display keys
-                                df_all_reports_display = all_reports_df.rename(columns={
-                                    'date': 'Date', 'shift': 'Shift', 'room_num': 'Room',
-                                    'paper_code': 'Paper Code', 'paper_name': 'Paper Name', 'class': 'Class', # Added 'class' here
-                                    'invigilators': 'Invigilators',
-                                    'absent_roll_numbers': 'Absent Roll Numbers',
-                                    'ufm_roll_numbers': 'UFM Roll Numbers',
-                                    'report_key': 'Report Key'
-                                })
+                                selected_class = ""
+                                if not matching_session_info.empty:
+                                    selected_class = str(matching_session_info.iloc[0]['Class_sp']).strip() # Use Class_sp from sitting plan
+
+                                # Create a unique key for CSV row ID
+                                report_key = f"{report_date.strftime('%Y%m%d')}_{report_shift.lower()}_{selected_room_num}_{selected_paper_code}"
+
+                                # Load existing report from CSV
+                                loaded_success, loaded_report = load_single_cs_report_csv(report_key)
+                                if loaded_success:
+                                    st.info("Existing report loaded.")
+                                else:
+                                    st.info("No existing report found for this session. Starting new.")
+                                    loaded_report = {} # Ensure it's an empty dict if not found
+
+                                # Get all expected roll numbers for this specific session
+                                expected_students_for_session = []
+                                # Filter merged_data for the selected session
+                                session_students = merged_data[
+                                    (merged_data['Room Number '].astype(str).str.strip() == selected_room_num) &
+                                    (merged_data['Paper Code_tt'].astype(str).str.strip() == selected_paper_code) &
+                                    (merged_data['Paper Name_tt'].astype(str).str.strip() == selected_paper_name)
+                                ]
+
+                                for _, row in session_students.iterrows():
+                                    for i in range(1, 11):
+                                        roll_col = f"Roll Number {i}"
+                                        if roll_col in row.index and pd.notna(row[roll_col]) and str(row[roll_col]).strip() != '':
+                                            expected_students_for_session.append(str(row[roll_col]).strip())
                                 
-                                # Ensure all display_cols exist, fill missing with empty string
-                                for col in display_cols:
-                                    if col not in df_all_reports_display.columns:
-                                        df_all_reports_display[col] = ""
+                                expected_students_for_session = sorted(list(set(expected_students_for_session))) # Remove duplicates and sort
+
+                                st.write(f"**Reporting for:** Room {selected_room_num}, Paper: {selected_paper_name} ({selected_paper_code})")
+
+                                # Fetch all team members for invigilator selection
+                                all_team_members_for_invigilators = load_exam_team_members()
+
+                                # Multiselect for Invigilator Names
+                                invigilators_selected = st.multiselect(
+                                    "Invigilator Names (select one or more)", 
+                                    options=all_team_members_for_invigilators, 
+                                    default=loaded_report.get('invigilators', []), # Default to loaded report's invigilators
+                                    key="invigilators_multiselect"
+                                )
                                 
-                                st.dataframe(df_all_reports_display[
-                                    ['Date', 'Shift', 'Room', 'Paper Code', 'Paper Name', 'Class', # Added 'Class' here
-                                     'Invigilators', 'Absent Roll Numbers', 'UFM Roll Numbers', 'Report Key']
-                                ])
-                            else:
-                                st.info("No reports saved yet.")
+                                # Multiselect for Absent Roll Numbers
+                                absent_roll_numbers_selected = st.multiselect(
+                                    "Absent Roll Numbers", 
+                                    options=expected_students_for_session, 
+                                    default=loaded_report.get('absent_roll_numbers', []),
+                                    key="absent_roll_numbers_multiselect"
+                                )
+
+                                # Multiselect for UFM Roll Numbers
+                                ufm_roll_numbers_selected = st.multiselect(
+                                    "UFM (Unfair Means) Roll Numbers", 
+                                    options=expected_students_for_session, 
+                                    default=loaded_report.get('ufm_roll_numbers', []),
+                                    key="ufm_roll_numbers_multiselect"
+                                )
+
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button("Save Report", key="save_cs_report"):
+                                        # --- Validation Logic ---
+                                        expected_set = set(expected_students_for_session)
+                                        absent_set = set(absent_roll_numbers_selected)
+                                        ufm_set = set(ufm_roll_numbers_selected)
+                                        invigilators_set = set(invigilators_selected) # For invigilator validation
+
+                                        validation_errors = []
+
+                                        # Invigilator validation: no duplicate invigilators for the same room
+                                        if len(invigilators_selected) != len(invigilators_set):
+                                            validation_errors.append("Error: Duplicate invigilators selected for this room. Each invigilator must be unique.")
+
+                                        # 1. All reported absent students must be in the expected list
+                                        if not absent_set.issubset(expected_set):
+                                            invalid_absent = list(absent_set.difference(expected_set))
+                                            validation_errors.append(f"Error: Absent roll numbers {invalid_absent} are not in the expected student list for this session.")
+
+                                        # 2. All reported UFM students must be in the expected list
+                                        if not ufm_set.issubset(expected_set):
+                                            invalid_ufm = list(ufm_set.difference(expected_set))
+                                            validation_errors.append(f"Error: UFM roll numbers {invalid_ufm} are not in the expected student list for this session.")
+
+                                        # 3. No student can be both absent and UFM
+                                        if not absent_set.isdisjoint(ufm_set):
+                                            overlap = list(absent_set.intersection(ufm_set))
+                                            validation_errors.append(f"Error: Roll numbers {overlap} are marked as both Absent and UFM. A student cannot be both.")
+                                        
+                                        # 4. Ensure all expected students are accounted for (present, absent, or UFM)
+                                        # The sum of present + absent + UFM should equal total expected.
+                                        # Present students are implicitly (expected - absent) - ufm.
+                                        # So, (expected - absent - ufm) + absent + ufm = expected
+                                        # This means the union of absent and UFM sets must be a subset of expected,
+                                        # and the size of the union should not exceed the expected.
+                                        
+                                        # This check is implicitly covered by the subset checks above.
+                                        # If all absent and UFM are subsets of expected, and there's no overlap,
+                                        # then the remaining students are implicitly present.
+                                        # The sum (len(present_implicit) + len(absent_set) + len(ufm_set)) will equal len(expected_set).
+                                        # So, no explicit validation is needed here for the sum, as the other checks guarantee it.
+
+
+                                        if validation_errors:
+                                            for err in validation_errors:
+                                                st.error(err)
+                                        else:
+                                            report_data = {
+                                                'report_key': report_key, # Add report_key to data
+                                                'date': report_date.strftime('%d-%m-%Y'),
+                                                'shift': report_shift,
+                                                'room_num': selected_room_num,
+                                                'paper_code': selected_paper_code,
+                                                'paper_name': selected_paper_name,
+                                                'class': selected_class, # Added 'class' here
+                                                'invigilators': invigilators_selected, # Store as list
+                                                'absent_roll_numbers': absent_roll_numbers_selected, # Store as list
+                                                'ufm_roll_numbers': ufm_roll_numbers_selected # Store as list
+                                            }
+                                            success, message = save_cs_report_csv(report_key, report_data)
+                                            if success:
+                                                st.success(message)
+                                            else:
+                                                st.error(message)
+                                            st.rerun() # Rerun to refresh the UI with saved data
+
+                                st.markdown("---")
+                                st.subheader("All Saved Reports (for debugging/review)")
+                                
+                                # Fetch all reports for the current CS user from CSV
+                                all_reports_df = load_cs_reports_csv()
+                                
+                                if not all_reports_df.empty:
+                                    # Reorder columns for better readability
+                                    display_cols = [
+                                        "date", "shift", "room_num", "paper_code", "paper_name", "class", # Added 'class' here
+                                        "invigilators", "absent_roll_numbers", "ufm_roll_numbers", "report_key"
+                                    ]
+                                    # Map internal keys to display keys
+                                    df_all_reports_display = all_reports_df.rename(columns={
+                                        'date': 'Date', 'shift': 'Shift', 'room_num': 'Room',
+                                        'paper_code': 'Paper Code', 'paper_name': 'Paper Name', 'class': 'Class', # Added 'class' here
+                                        'invigilators': 'Invigilators',
+                                        'absent_roll_numbers': 'Absent Roll Numbers',
+                                        'ufm_roll_numbers': 'UFM Roll Numbers',
+                                        'report_key': 'Report Key'
+                                    })
+                                    
+                                    # Ensure all display_cols exist, fill missing with empty string
+                                    for col in display_cols:
+                                        if col not in df_all_reports_display.columns:
+                                            df_all_reports_display[col] = ""
+                                    
+                                    st.dataframe(df_all_reports_display[
+                                        ['Date', 'Shift', 'Room', 'Paper Code', 'Paper Name', 'Class', # Added 'Class' here
+                                         'Invigilators', 'Absent Roll Numbers', 'UFM Roll Numbers', 'Report Key']
+                                    ])
+                                else:
+                                    st.info("No reports saved yet.")
 
     else:
         st.warning("Enter valid Centre Superintendent credentials.")
