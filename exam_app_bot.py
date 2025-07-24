@@ -56,8 +56,7 @@ def save_uploaded_file(uploaded_file_content, filename):
             f.write(csv_bytes)
         return True
     except Exception as e:
-        st.error(f"Error saving file {filename}: {e}")
-        return False
+        return False, f"Error saving file {filename}: {e}"
 
 # Admin login (simple hardcoded credentials)
 def admin_login():
@@ -220,7 +219,6 @@ def get_all_exams(roll_number, sitting_plan, timetable):
                 _class = str(sp_row["Class"]).strip()
 
                 # Find all matching entries in the timetable for this paper and class
-                # Removed the 'Shift' matching condition here as per user request
                 matches_in_timetable = timetable[
                     (timetable["Paper"].astype(str).str.strip() == paper) &
                     (timetable["Paper Code"].astype(str).str.strip() == paper_code) &
@@ -263,7 +261,6 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                 _class = str(sp_row["Class"]).strip()
 
                 # Find if this paper's date matches the search in the timetable
-                # Removed the 'Shift' matching condition here as per user request
                 matches_in_timetable = timetable[
                     (timetable["Class"].astype(str).str.strip().str.lower() == _class.lower()) &
                     (timetable["Paper"].astype(str).str.strip() == paper) &
@@ -309,7 +306,7 @@ def generate_room_chart(date_str, shift, room_number, sitting_plan, timetable):
     # Get all exams scheduled for the given date and shift
     current_day_exams_tt = timetable[
         (timetable["Date"].astype(str).str.strip() == date_str) &
-        (timetable["Shift"].astype(str).str.strip().lower() == shift.lower())
+        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower()) # Fixed: Added .str before .lower()
     ]
 
     if current_day_exams_tt.empty:
@@ -393,7 +390,7 @@ def generate_room_chart(date_str, shift, room_number, sitting_plan, timetable):
     excel_output_data.append([]) # Blank line
     excel_output_data.append(["दिनांक :-", date_str])
     excel_output_data.append(["पाली :-", shift])
-    excel_output_data.append([f"कक्ष :- {room_number} (Ground Floor)"])
+    excel_output_data.append([f" कक्ष :- {room_number} (Ground Floor)"]) # Added space for consistency
     excel_output_data.append([f"समय :- {exam_time}"]) # Use extracted time
     excel_output_data.append([]) # Blank line
 
@@ -472,7 +469,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
     # Filter timetable for the given date and shift
     current_day_exams_tt = timetable[
         (timetable["Date"].astype(str).str.strip() == date_str) &
-        (timetable["Shift"].astype(str).str.strip().lower() == shift.lower())
+        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower()) # Fixed: Added .str before .lower()
     ]
 
     if current_day_exams_tt.empty:
@@ -626,7 +623,7 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, sitting_plan, t
 
     current_day_exams_tt = timetable[
         (timetable["Date"].astype(str).str.strip() == date_str) &
-        (timetable["Shift"].astype(str).str.strip().lower() == shift.lower())
+        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower()) # Fixed: Added .str before .lower()
     ]
 
     if current_day_exams_tt.empty:
@@ -1084,7 +1081,7 @@ if menu == "Student View":
         option = st.radio("Choose Search Option:", [
             "Search by Roll Number and Date",
             "Get Full Exam Schedule by Roll Number",
-            "View Full Timetable" # New option for student view
+            "View Full Timetable"
         ])
 
         if option == "Search by Roll Number and Date":
@@ -1117,7 +1114,7 @@ if menu == "Student View":
                 else:
                     st.warning("No exam records found for this roll number.")
         
-        elif option == "View Full Timetable": # New section for timetable view
+        elif option == "View Full Timetable":
             st.subheader("Full Examination Timetable")
             st.dataframe(timetable)
 
@@ -1134,25 +1131,32 @@ elif menu == "Admin Panel":
         st.subheader("📤 Upload Data Files")
         uploaded_sitting = st.file_uploader("Upload sitting_plan.csv", type=["csv"])
         if uploaded_sitting:
-            if save_uploaded_file(uploaded_sitting, "sitting_plan.csv"):
+            success, msg = save_uploaded_file(uploaded_sitting, "sitting_plan.csv")
+            if success:
                 st.success("Sitting plan uploaded successfully.")
                 sitting_plan, timetable = load_data() # Reload data after successful upload
+            else:
+                st.error(msg)
+
 
         uploaded_timetable = st.file_uploader("Upload timetable.csv", type=["csv"])
         if uploaded_timetable:
-            if save_uploaded_file(uploaded_timetable, "timetable.csv"):
+            success, msg = save_uploaded_file(uploaded_timetable, "timetable.csv")
+            if success:
                 st.success("Timetable uploaded successfully.")
                 sitting_plan, timetable = load_data() # Reload data after successful upload
+            else:
+                st.error(msg)
         
         st.markdown("---") # Separator
 
         # Admin Panel Options
         admin_option = st.radio("Select Admin Task:", [
             "Generate Room Chart",
-            "Get All Students for Date & Shift (Room Wise)", # Moved and renamed
-            "Get All Students for Date & Shift (Roll Number Wise)", # New feature
-            "Update Timetable Details", # New option for updating date/shift/time
-            "Report Panel" # Added new option
+            "Get All Students for Date & Shift (Room Wise)",
+            "Get All Students for Date & Shift (Roll Number Wise)",
+            "Update Timetable Details",
+            "Report Panel"
         ])
 
         if sitting_plan.empty or timetable.empty:
@@ -1166,7 +1170,6 @@ elif menu == "Admin Panel":
                 chart_shift_options = ["Morning", "Evening"]
                 chart_shift = st.selectbox("Select Shift", chart_shift_options)
                 
-                # Fixed: Use 'Room Number' after stripping whitespace from column names
                 all_room_numbers = sitting_plan['Room Number'].dropna().astype(str).str.strip().unique()
                 selected_room_number_for_chart = st.selectbox("Select Room Number", [""] + sorted(all_room_numbers.tolist()))
 
@@ -1383,49 +1386,108 @@ elif menu == "Admin Panel":
                     st.dataframe(timetable)
 
                     st.markdown("---")
-                    st.write("Enter values to update 'Date', 'Shift', and 'Time' for all entries:")
+                    st.write("Select filters to specify which entries to update:")
                     
-                    # Provide default values from the first row of the current timetable if available
-                    default_date = datetime.date.today()
-                    if 'Date' in timetable.columns and not timetable['Date'].empty and pd.notna(timetable['Date'].iloc[0]):
+                    # Filters for selecting entries to update
+                    unique_dates_tt = sorted(timetable['Date'].astype(str).unique().tolist())
+                    unique_shifts_tt = sorted(timetable['Shift'].astype(str).unique().tolist())
+                    unique_classes_tt = sorted(timetable['Class'].astype(str).unique().tolist())
+                    unique_paper_codes_tt = sorted(timetable['Paper Code'].astype(str).unique().tolist())
+                    unique_paper_names_tt = sorted(timetable['Paper Name'].astype(str).unique().tolist())
+
+                    filter_date_tt_update = st.selectbox("Filter by Date", ["All"] + unique_dates_tt, key="filter_date_tt_update")
+                    filter_shift_tt_update = st.selectbox("Filter by Shift", ["All"] + unique_shifts_tt, key="filter_shift_tt_update")
+                    filter_class_tt_update = st.selectbox("Filter by Class", ["All"] + unique_classes_tt, key="filter_class_tt_update")
+                    filter_paper_code_tt_update = st.selectbox("Filter by Paper Code", ["All"] + unique_paper_codes_tt, key="filter_paper_code_tt_update")
+                    filter_paper_name_tt_update = st.selectbox("Filter by Paper Name", ["All"] + unique_paper_names_tt, key="filter_paper_name_tt_update")
+
+                    st.markdown("---")
+                    st.write("Entries that will be updated based on your filters:")
+                    
+                    temp_filtered_tt = timetable.copy()
+                    if filter_date_tt_update != "All":
+                        temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['Date'].astype(str) == filter_date_tt_update]
+                    if filter_shift_tt_update != "All":
+                        temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['Shift'].astype(str) == filter_shift_tt_update]
+                    if filter_class_tt_update != "All":
+                        temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['Class'].astype(str) == filter_class_tt_update]
+                    if filter_paper_code_tt_update != "All":
+                        temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['Paper Code'].astype(str) == filter_paper_code_tt_update]
+                    if filter_paper_name_tt_update != "All":
+                        temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['Paper Name'].astype(str) == filter_paper_name_tt_update]
+                    
+                    if temp_filtered_tt.empty:
+                        st.info("No entries match the selected filters. No updates will be applied.")
+                    else:
+                        st.dataframe(temp_filtered_tt)
+
+                    st.markdown("---")
+                    st.write("Enter new values for 'Date', 'Shift', and 'Time' for the filtered entries:")
+                    
+                    # Provide default values from the first row of the *filtered* timetable if available, otherwise from the full timetable or current date/time
+                    default_date_update_input = datetime.date.today()
+                    if not temp_filtered_tt.empty and 'Date' in temp_filtered_tt.columns and pd.notna(temp_filtered_tt['Date'].iloc[0]):
                         try:
-                            default_date = datetime.datetime.strptime(str(timetable['Date'].iloc[0]).strip(), '%d-%m-%Y').date()
+                            default_date_update_input = datetime.datetime.strptime(str(temp_filtered_tt['Date'].iloc[0]).strip(), '%d-%m-%Y').date()
                         except ValueError:
-                            pass # Keep today's date if parsing fails
+                            pass
+                    elif 'Date' in timetable.columns and not timetable['Date'].empty and pd.notna(timetable['Date'].iloc[0]):
+                         try:
+                            default_date_update_input = datetime.datetime.strptime(str(timetable['Date'].iloc[0]).strip(), '%d-%m-%Y').date()
+                         except ValueError:
+                            pass
 
-                    default_shift = "Morning"
-                    if 'Shift' in timetable.columns and not timetable['Shift'].empty and pd.notna(timetable['Shift'].iloc[0]):
-                        default_shift = str(timetable['Shift'].iloc[0]).strip()
 
-                    default_time = "09:00 AM - 12:00 PM"
-                    if 'Time' in timetable.columns and not timetable['Time'].empty and pd.notna(timetable['Time'].iloc[0]):
-                        default_time = str(timetable['Time'].iloc[0]).strip()
+                    default_shift_update_input = "Morning"
+                    if not temp_filtered_tt.empty and 'Shift' in temp_filtered_tt.columns and pd.notna(temp_filtered_tt['Shift'].iloc[0]):
+                        default_shift_update_input = str(temp_filtered_tt['Shift'].iloc[0]).strip()
+                    elif 'Shift' in timetable.columns and not timetable['Shift'].empty and pd.notna(timetable['Shift'].iloc[0]):
+                        default_shift_update_input = str(timetable['Shift'].iloc[0]).strip()
 
-                    update_date = st.date_input("New Date for all entries", value=default_date, key="update_tt_date")
-                    update_shift = st.selectbox("New Shift for all entries", ["Morning", "Evening"], index=["Morning", "Evening"].index(default_shift) if default_shift in ["Morning", "Evening"] else 0, key="update_tt_shift")
-                    update_time = st.text_input("New Time for all entries (e.g., 09:00 AM - 12:00 PM)", value=default_time, key="update_tt_time")
+
+                    default_time_update_input = "09:00 AM - 12:00 PM"
+                    if not temp_filtered_tt.empty and 'Time' in temp_filtered_tt.columns and pd.notna(temp_filtered_tt['Time'].iloc[0]):
+                        default_time_update_input = str(temp_filtered_tt['Time'].iloc[0]).strip()
+                    elif 'Time' in timetable.columns and not timetable['Time'].empty and pd.notna(timetable['Time'].iloc[0]):
+                        default_time_update_input = str(timetable['Time'].iloc[0]).strip()
+
+
+                    update_date = st.date_input("New Date", value=default_date_update_input, key="update_tt_date")
+                    update_shift = st.selectbox("New Shift", ["Morning", "Evening"], index=["Morning", "Evening"].index(default_shift_update_input) if default_shift_update_input in ["Morning", "Evening"] else 0, key="update_tt_shift")
+                    update_time = st.text_input("New Time (e.g., 09:00 AM - 12:00 PM)", value=default_time_update_input, key="update_tt_time")
 
                     if st.button("Apply Updates and Save Timetable"):
-                        timetable_copy = timetable.copy()
-                        # Ensure 'Date', 'Shift', 'Time' columns exist before assigning
-                        if 'Date' not in timetable_copy.columns:
-                            timetable_copy['Date'] = ""
-                        if 'Shift' not in timetable_copy.columns:
-                            timetable_copy['Shift'] = ""
-                        if 'Time' not in timetable_copy.columns:
-                            timetable_copy['Time'] = ""
-
-                        timetable_copy['Date'] = update_date.strftime('%d-%m-%Y')
-                        timetable_copy['Shift'] = update_shift
-                        timetable_copy['Time'] = update_time
-
-                        if save_uploaded_file(timetable_copy, "timetable.csv"):
-                            st.success("Timetable details updated and saved successfully.")
-                            # Reload data to reflect changes in the app
-                            sitting_plan, timetable = load_data() 
-                            st.rerun()
+                        if temp_filtered_tt.empty:
+                            st.warning("No entries matched your filters, so no updates were applied.")
                         else:
-                            st.error("Failed to update timetable details.")
+                            timetable_modified = timetable.copy()
+                            
+                            # Identify indices to update in the original DataFrame
+                            indices_to_update = timetable_modified[
+                                (timetable_modified['Date'].astype(str) == filter_date_tt_update if filter_date_tt_update != "All" else True) &
+                                (timetable_modified['Shift'].astype(str) == filter_shift_tt_update if filter_shift_tt_update != "All" else True) &
+                                (timetable_modified['Class'].astype(str) == filter_class_tt_update if filter_class_tt_update != "All" else True) &
+                                (timetable_modified['Paper Code'].astype(str) == filter_paper_code_tt_update if filter_paper_code_tt_update != "All" else True) &
+                                (timetable_modified['Paper Name'].astype(str) == filter_paper_name_tt_update if filter_paper_name_tt_update != "All" else True)
+                            ].index
+
+                            # Apply updates only to the identified rows
+                            if not indices_to_update.empty:
+                                timetable_modified.loc[indices_to_update, 'Date'] = update_date.strftime('%d-%m-%Y')
+                                timetable_modified.loc[indices_to_update, 'Shift'] = update_shift
+                                timetable_modified.loc[indices_to_update, 'Time'] = update_time
+
+                                success, msg = save_uploaded_file(timetable_modified, "timetable.csv")
+                                if success:
+                                    st.success(f"Timetable details updated for {len(indices_to_update)} entries and saved successfully.")
+                                    # Reload data to reflect changes in the app
+                                    sitting_plan, timetable = load_data() 
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                            else:
+                                st.warning("No entries matched your filters to apply updates.")
+
 
             elif admin_option == "Report Panel": # New Report Panel option
                 display_report_panel() # Call the new function to display reports
@@ -1562,7 +1624,7 @@ elif menu == "Centre Superintendent Panel":
                 # Filter timetable for selected date and shift to get available exams
                 available_exams_tt = timetable[
                     (timetable["Date"].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
-                    (timetable["Shift"].astype(str).str.strip().lower() == report_shift.lower())
+                    (timetable["Shift"].astype(str).str.strip().str.lower() == report_shift.lower()) # Fixed: Added .str before .lower()
                 ]
 
                 if available_exams_tt.empty:
@@ -1596,7 +1658,6 @@ elif menu == "Centre Superintendent Panel":
                         st.warning("No sitting plan data found for the selected exams. Ensure data consistency.")
                     else:
                         # Create a unique identifier for each exam session (Room - Paper Code (Paper Name))
-                        # Fixed: Use 'Room Number' after stripping whitespace from column names
                         merged_data['exam_session_id'] = merged_data['Room Number'].astype(str).str.strip() + " - " + \
                                                           merged_data['Paper Code_tt'].astype(str).str.strip() + " (" + \
                                                           merged_data['Paper Name_tt'].astype(str).str.strip() + ")"
@@ -1794,3 +1855,4 @@ elif menu == "Centre Superintendent Panel":
 
     else:
         st.warning("Enter valid Centre Superintendent credentials.")
+ 
