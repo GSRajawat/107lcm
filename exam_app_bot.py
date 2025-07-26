@@ -20,6 +20,7 @@ SHIFT_ASSIGNMENTS_FILE = "shift_assignments.csv"
 ROOM_INVIGILATORS_FILE = "room_invigilator_assignments.csv" # New file for room-wise invigilators
 SITTING_PLAN_FILE = "sitting_plan.csv" # Standardized sitting plan filename
 TIMETABLE_FILE = "timetable.csv" # Standardized timetable filename
+ASSIGNED_SEATS_FILE = "assigned_seats.csv" # New file for assigned seats
 ATTESTATION_DATA_FILE = "attestation_data_combined.csv" # For rasa_pdf output
 COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv" # For college_statistic output
 
@@ -28,11 +29,12 @@ COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv" # For college_statistic
 if 'cs_reports' not in st.session_state:
     st.session_state.cs_reports = {}
 
-# Load data from CSV files (sitting_plan.csv, timetable.csv)
+# Load data from CSV files (sitting_plan.csv, timetable.csv, assigned_seats.csv)
 def load_data():
     # Check if files exist before attempting to read them
     sitting_plan_df = pd.DataFrame()
     timetable_df = pd.DataFrame()
+    assigned_seats_df = pd.DataFrame() # Initialize assigned_seats_df
 
     if os.path.exists(SITTING_PLAN_FILE):
         try:
@@ -51,8 +53,20 @@ def load_data():
         except Exception as e:
             st.error(f"Error loading {TIMETABLE_FILE}: {e}")
             timetable_df = pd.DataFrame()
+    
+    if os.path.exists(ASSIGNED_SEATS_FILE):
+        try:
+            # Ensure Room Number and Roll Number are read as string to prevent type mismatch issues
+            assigned_seats_df = pd.read_csv(ASSIGNED_SEATS_FILE, dtype={"Roll Number": str, "Room Number": str})
+        except Exception as e:
+            st.error(f"Error loading {ASSIGNED_SEATS_FILE}: {e}")
+            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+    else:
+        assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+        # st.info(f"Note: `{ASSIGNED_SEATS_FILE}` not found. A new empty file will be created upon first assignment.") # Removed for cleaner UI
+
             
-    return sitting_plan_df, timetable_df
+    return sitting_plan_df, timetable_df, assigned_seats_df
 
 # Save uploaded files (for admin panel)
 def save_uploaded_file(uploaded_file_content, filename):
@@ -192,7 +206,7 @@ def save_shift_assignment(date, shift, assignments):
         'date': date,
         'shift': shift,
         'senior_center_superintendent': str(assignments.get('senior_center_superintendent', [])),
-        'center_superintendent': str(assignments.get('center_superintendent', [])),
+        'center_superintendent': str(assignments.get('center_center_superintendent', [])),
         'assistant_center_superintendent': str(assignments.get('assistant_center_superintendent', [])),
         'permanent_invigilator': str(assignments.get('permanent_invigilator', [])),
         'assistant_permanent_invigilator': str(assignments.get('assistant_permanent_invigilator', []))
@@ -365,166 +379,6 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                             "Type": sp_row.get("Type", "") # Use .get() for safe access
                         })
     return found_sittings
-
-# Function to generate the room chart data for Excel (Admin Panel)
-def generate_room_chart(date_str, shift, room_number, sitting_plan, timetable):
-    # Get all exams scheduled for the given date and shift
-    current_day_exams_tt = timetable[
-        (timetable["Date"].astype(str).str.strip() == date_str) &
-        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower())
-    ]
-
-    if current_day_exams_tt.empty:
-        return None, "No exams found in timetable for the given Date and Shift."
-
-    # Extract time from the timetable. Assuming all exams in a given shift have the same time.
-    exam_time = current_day_exams_tt.iloc[0]["Time"].strip() if "Time" in current_day_exams_tt.columns else "TBD"
-
-    # Filter sitting plan for the specific room
-    filtered_sp_by_room = sitting_plan[
-        (sitting_plan["Room Number"].astype(str).str.strip() == str(room_number).strip())
-    ]
-
-    if filtered_sp_by_room.empty:
-        return None, "No students found in sitting plan for the specified room. Check room number."
-
-    student_entries_parsed = []
-    # Iterate through students in the filtered sitting plan for the room
-    for _, sp_row in filtered_sp_by_room.iterrows():
-        # Extract paper and class details from this sitting plan row
-        sp_paper = str(sp_row["Paper"]).strip()
-        sp_paper_code = str(sp_row["Paper Code"]).strip()
-        sp_paper_name = str(sp_row["Paper Name"]).strip()
-        sp_class = str(sp_row["Class"]).strip()
-        sp_mode = str(sp_row.get("Mode", "")).strip() # Get Mode
-        sp_type = str(sp_row.get("Type", "")).strip() # Get Type
-
-        # Check if this specific paper (from sitting plan) is scheduled for the selected date/shift
-        is_exam_scheduled = current_day_exams_tt[
-            (current_day_exams_tt["Class"].astype(str).str.strip().str.lower() == sp_class.lower()) &
-            (current_day_exams_tt["Paper"].astype(str).str.strip() == sp_paper) &
-            (current_day_exams_tt["Paper Code"].astype(str).str.strip() == sp_paper_code) &
-            (current_day_exams_tt["Paper Name"].astype(str).str.strip() == sp_paper_name)
-        ]
-
-        if not is_exam_scheduled.empty:
-            # If the paper is scheduled, then add all students from this sitting plan row
-            for i in range(1, 11):
-                roll_col = f"Roll Number {i}"
-                s_col = f"Seat Number {i}" # Define s_col here
-
-                roll_num = str(sp_row.get(roll_col, '')).strip()
-                seat_num_display = ""
-                seat_num_sort_key = float('inf')
-
-                if roll_num and roll_num != 'nan':
-                    if s_col in sp_row.index: # Check if column exists
-                        seat_num_raw = str(sp_row[s_col]).strip()
-                        try:
-                            seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
-                            seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
-                        except ValueError:
-                            seat_num_display = seat_num_raw if seat_num_raw else "N/A"
-                    else:
-                        seat_num_display = "N/A" # Column itself is missing
-                    
-                    student_entries_parsed.append({
-                        "roll_num": roll_num,
-                        "room_num": room_number,
-                        "seat_num_display": seat_num_display, # This is what will be displayed/exported
-                        "seat_num_sort_key": seat_num_sort_key, # This is for sorting
-                        "paper_name": sp_paper_name,
-                        "paper_code": sp_paper_code,
-                        "class_name": sp_class,
-                        "mode": sp_mode, # Add mode
-                        "type": sp_type # Add type
-                    })
-    
-    if not student_entries_parsed:
-        return None, "No students found in the specified room for any exam on the selected date and shift."
-
-    student_entries_parsed.sort(key=lambda x: x['seat_num_sort_key']) # Sort using the sort key
-
-    # Prepare data for Excel output
-    excel_output_data = []
-
-    # --- Header Section ---
-    excel_output_data.append(["जीवाजी विश्वविद्यालय ग्वालियर"])
-    excel_output_data.append(["परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107"])
-    excel_output_data.append([f"Examination {datetime.datetime.now().year}"]) # More general
-    excel_output_data.append([]) # Blank line
-    excel_output_data.append(["दिनांक :-", date_str])
-    excel_output_data.append(["पाली :-", shift])
-    excel_output_data.append([f" कक्ष :- {room_number} (Ground Floor)"]) # Added space for consistency
-    excel_output_data.append([f"समय :- {exam_time}"]) # Use extracted time
-    excel_output_data.append([]) # Blank line
-
-    # --- Answer Sheet Table Section (Dynamic counts for each paper) ---
-    excel_output_data.append(["परीक्षा का नाम", "प्रश्न पत्र", "उत्तर पुस्तिकाएं", "", ""])
-    excel_output_data.append(["", "", "प्राप्त", "प्रयुक्त", "शेष"])
-    
-    # Group students by Class, Paper, Paper Code, Paper Name, Mode, Type to get counts per paper
-    paper_counts = {}
-    for student in student_entries_parsed:
-        key = (student['class_name'], student['paper_code'], student['paper_name'], student['mode'], student['type'])
-        paper_counts[key] = paper_counts.get(key, 0) + 1
-
-    total_students_in_room = 0
-    for (class_name, paper_code, paper_name, mode, type_), count in paper_counts.items():
-        excel_output_data.append([
-            f"{class_name} - {mode} - {type_}", # Dynamic mode and type
-            f"{paper_code} - {paper_name}",
-            str(count), "", "" # Dynamic count for 'प्राप्त'
-        ])
-        total_students_in_room += count
-
-    excel_output_data.append(["Total", "", str(total_students_in_room), "", ""]) # Dynamic total students in room
-
-    excel_output_data.append([]) # Blank line
-    excel_output_data.append([]) # Blank line
-    excel_output_data.append([]) # Blank line
-
-    excel_output_data.append(["अनुक्रमांक ( कक्ष क्र. - सीट क्र.)"]) # Added space for consistency
-    excel_output_data.append([]) # Blank line
-
-    # --- Student Data Section (mimicking PDF's 10-column layout) ---
-    num_student_cols_pdf = 10 # 10 students per logical row in the PDF
-
-    for i in range(0, len(student_entries_parsed), num_student_cols_pdf):
-        current_block_students = student_entries_parsed[i : i + num_student_cols_pdf]
-        
-        roll_numbers_row = []
-        details_row = []
-        
-        for k in range(num_student_cols_pdf):
-            if k < len(current_block_students):
-                entry = current_block_students[k]
-                roll_numbers_row.append(str(entry['roll_num']))
-                details_row.append(f"( कक्ष-{entry['room_num']}-सीट-{entry['seat_num_display']})-{entry['paper_name']}") # Use seat_num_display
-            else:
-                roll_numbers_row.append("")
-                details_row.append("")
-
-        excel_output_data.append(roll_numbers_row)
-        excel_output_data.append(details_row)
-        excel_output_data.append([""] * num_student_cols_pdf) # Blank row for spacing between student blocks
-
-    # --- Footer Section ---
-    excel_output_data.append([]) # Blank line
-    excel_output_data.append(["अनुपस्थित परीक्षार्थी"])
-    excel_output_data.append([]) # Blank line
-    excel_output_data.append(["स. क्र.", "प्रश्न पत्र", "अनुपस्थित अनुक्रमांक", "कुल", "UFM अनुक्रमांक एवं अतिरिक्त", "कुल"])
-    excel_output_data.append(["", "", "", "", "", ""]) # Placeholder row
-    excel_output_data.append(["", "", "", "", "", ""]) # Placeholder row
-    excel_output_data.append([]) # Blank line
-    excel_output_data.append(["पर्यवेक्षक का नाम"])
-    excel_output_data.append(["हस्ताक्षर"])
-    excel_output_data.append([]) # Blank line
-    excel_output_data.append(["पर्यवेक्षक का नाम"])
-    excel_output_data.append(["हस्ताक्षर"])
-    excel_output_data.append([]) # Blank line
-
-    return excel_output_data, None
 
 # Function to get all students for a given date and shift in the requested text format (Admin Panel)
 # This function will now also return data suitable for Excel download
@@ -985,9 +839,10 @@ def process_attestation_pdfs(zip_file_buffer, output_csv_path):
                             return value
                         elif i+1 < len(lines):
                             return lines[i+1].strip()
-                return ""
+                    return "" # Return empty string if label not found or value is empty
+                return "" # Return empty string if lines is empty
 
-            roll_no = re.match(r"(\d{9})", lines[0]).group(1) if re.match(r"(\d{9})", lines[0]) else ""
+            roll_no = re.match(r"(\d{9})", lines[0]).group(1) if lines and re.match(r"(\d{9})", lines[0]) else ""
             enrollment = extract_after("Enrollment No.:")
             session = extract_after("Session:")
             regular = extract_after("Regular/ Backlog:")
@@ -1139,7 +994,7 @@ def generate_college_statistics(input_csv_path, output_csv_path):
     except Exception as e:
         return False, f"Error generating college statistics: {e}"
 
-# New helper function to generate sequential seat numbers based on a range string
+# New helper function to generate sequential seat numbers based on a range string (from assign_seats_app.py)
 def generate_sequential_seats(seat_range_str, num_students):
     generated_seats = []
     seat_range_str = seat_range_str.strip().upper() # Normalize input
@@ -1175,57 +1030,6 @@ def generate_sequential_seats(seat_range_str, num_students):
     # Return only as many seats as there are students, or all generated seats if fewer students
     return generated_seats[:num_students]
 
-
-# New function to assign sequential seat numbers within rooms for each paper (now largely superseded by the granular assignment)
-# Keeping this for legacy/backward compatibility if needed, but the main assignment logic is in the UI
-def assign_sequential_seat_numbers(df_sitting_plan):
-    # Ensure relevant columns are treated as strings for consistent grouping
-    df_sitting_plan['Room Number'] = df_sitting_plan['Room Number'].astype(str).str.strip()
-    df_sitting_plan['Paper'] = df_sitting_plan['Paper'].astype(str).str.strip()
-    df_sitting_plan['Paper Code'] = df_sitting_plan['Paper Code'].astype(str).str.strip()
-    df_sitting_plan['Paper Name'] = df_sitting_plan['Paper Name'].astype(str).str.strip()
-    df_sitting_plan['Class'] = df_sitting_plan['Class'].astype(str).str.strip()
-    df_sitting_plan['Mode'] = df_sitting_plan['Mode'].astype(str).str.strip()
-    df_sitting_plan['Type'] = df_sitting_plan['Type'].astype(str).str.strip()
-
-    df_modified = df_sitting_plan.copy()
-
-    # Group by room, paper, paper code, paper name, class, mode, type to define unique exam sessions within rooms
-    group_cols = ['Room Number', 'Paper', 'Paper Code', 'Paper Name', 'Class', 'Mode', 'Type']
-
-    # Create a dictionary to hold the next available seat number for each unique group
-    global_seat_counters = {}
-
-    # Iterate through each row of the DataFrame
-    # We need to iterate by group to ensure sequential numbering within each group
-    for name, group in df_modified.groupby(group_cols):
-        # Only process if Room Number is not blank for this group
-        if name[0]: # name[0] is the Room Number from the group_cols tuple
-            # Initialize counter for this unique group if not already present
-            if name not in global_seat_counters:
-                global_seat_counters[name] = 0
-
-            # Iterate through rows within this group to assign seat numbers
-            for idx in group.index:
-                for i in range(1, 11):
-                    roll_col = f"Roll Number {i}"
-                    seat_col = f"Seat Number {i}"
-
-                    roll_num = str(df_modified.loc[idx, roll_col]).strip()
-
-                    if roll_num and roll_num != 'nan':
-                        global_seat_counters[name] += 1
-                        df_modified.loc[idx, seat_col] = str(global_seat_counters[name])
-                    else:
-                        df_modified.loc[idx, seat_col] = "" # Ensure blank if roll number is blank
-        else:
-            # If Room Number is blank for the group, ensure all Seat Numbers in those rows are also blank
-            for idx in group.index:
-                for i in range(1, 11):
-                    seat_col = f"Seat Number {i}"
-                    df_modified.loc[idx, seat_col] = ""
-
-    return df_modified
 
 # NEW FUNCTION: Get unassigned students for a given date and shift
 def get_unassigned_students_for_session(date_str, shift, sitting_plan_df, timetable_df):
@@ -1286,12 +1090,326 @@ def get_unassigned_students_for_session(date_str, shift, sitting_plan_df, timeta
     
     return sorted_unassigned_list
 
+# NEW FUNCTION: Get summary of students by paper for a given session (assigned + unassigned)
+def get_session_paper_summary(date_str, shift, sitting_plan_df, assigned_seats_df, timetable_df):
+    summary_data = []
+
+    # Filter timetable for the given date and shift
+    relevant_tt_exams = timetable_df[
+        (timetable_df["Date"].astype(str).str.strip() == date_str) &
+        (timetable_df["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+    ].copy()
+
+    if relevant_tt_exams.empty:
+        return pd.DataFrame(columns=['Paper Name', 'Paper Code', 'Total Expected', 'Assigned', 'Unassigned'])
+
+    # Iterate through each unique paper in the relevant timetable exams
+    for _, tt_row in relevant_tt_exams.drop_duplicates(subset=['Paper Code', 'Paper Name']).iterrows():
+        paper_code = str(tt_row['Paper Code']).strip()
+        paper_name = str(tt_row['Paper Name']).strip()
+        
+        # Get all expected roll numbers for this specific paper (from sitting plan)
+        expected_rolls = set()
+        paper_sitting_rows = sitting_plan_df[sitting_plan_df['Paper Code'].astype(str).str.strip() == paper_code]
+        for _, sp_row in paper_sitting_rows.iterrows():
+            for i in range(1, 11):
+                roll_col = f"Roll Number {i}"
+                if roll_col in sp_row and pd.notna(sp_row[roll_col]) and str(sp_row[roll_col]).strip() != '':
+                    expected_rolls.add(str(sp_row[roll_col]).strip())
+        
+        total_expected_students = len(expected_rolls)
+
+        # Get assigned roll numbers for this specific paper, date, and shift
+        assigned_rolls_for_paper = set(
+            assigned_seats_df[
+                (assigned_seats_df["Paper Code"].astype(str) == paper_code) &
+                (assigned_seats_df["Date"] == date_str) &
+                (assigned_seats_df["Shift"] == shift)
+            ]["Roll Number"].astype(str).tolist()
+        )
+        num_assigned_students = len(assigned_rolls_for_paper)
+
+        # Calculate unassigned students
+        num_unassigned_students = total_expected_students - num_assigned_students
+
+        summary_data.append({
+            'Paper Name': paper_name,
+            'Paper Code': paper_code,
+            'Total Expected': total_expected_students,
+            'Assigned': num_assigned_students,
+            'Unassigned': num_unassigned_students
+        })
+    
+    return pd.DataFrame(summary_data)
+
+# NEW FUNCTION: Display Room Occupancy Report
+def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_df):
+    st.subheader("📊 Room Occupancy Report")
+    st.info("View detailed occupancy for each room for a selected date and shift.")
+
+    if sitting_plan_df.empty or timetable_df.empty:
+        st.warning("Please upload 'sitting_plan.csv' and 'timetable.csv' via the Admin Panel to generate this report.")
+        return
+
+    # Date and Shift filters for the report
+    report_date_options = sorted(timetable_df["Date"].dropna().unique())
+    report_shift_options = sorted(timetable_df["Shift"].dropna().unique())
+
+    if not report_date_options or not report_shift_options:
+        st.info("No exam dates or shifts found in the timetable to generate a report.")
+        return
+
+    selected_report_date = st.selectbox("Select Date", report_date_options, key="room_report_date")
+    selected_report_shift = st.selectbox("Select Shift", report_shift_options, key="room_report_shift")
+
+    if st.button("Generate Room Occupancy Report"):
+        # Filter sitting plan for relevant exams on this date/shift
+        relevant_tt_exams = timetable_df[
+            (timetable_df["Date"].astype(str).str.strip() == selected_report_date) &
+            (timetable_df["Shift"].astype(str).str.strip().str.lower() == selected_report_shift.lower())
+        ]
+
+        if relevant_tt_exams.empty:
+            st.info("No exams scheduled for the selected date and shift to generate room occupancy.")
+            return
+
+        # Get unique combinations of (Class, Paper, Paper Code, Paper Name) for the relevant exams
+        unique_exams_in_session = relevant_tt_exams[['Class', 'Paper', 'Paper Code', 'Paper Name']].drop_duplicates()
+
+        room_occupancy_data = []
+
+        # Iterate through each unique room in the sitting plan that has a room number assigned
+        all_rooms_in_sitting_plan = sitting_plan_df['Room Number'].dropna().astype(str).str.strip().unique()
+        
+        for room_num in sorted(all_rooms_in_sitting_plan):
+            # Find all sitting plan entries for this room
+            room_sitting_plan_entries = sitting_plan_df[sitting_plan_df['Room Number'].astype(str).str.strip() == room_num]
+            
+            expected_students_in_room = 0
+            assigned_students_in_room = 0
+            assigned_roll_numbers_list = []
+
+            # Calculate expected students for this room for the selected session
+            for _, sp_row in room_sitting_plan_entries.iterrows():
+                # Create a temporary key to link sitting plan entries to unique exams in session
+                sp_exam_key = str(sp_row['Class']).strip() + "_" + \
+                              str(sp_row['Paper']).strip() + "_" + \
+                              str(sp_row['Paper Code']).strip() + "_" + \
+                              str(sp_row['Paper Name']).strip()
+                
+                # Check if this sitting plan entry's exam is part of the current session
+                is_relevant_exam = False
+                for _, ue_row in unique_exams_in_session.iterrows():
+                    ue_exam_key = str(ue_row['Class']).strip() + "_" + \
+                                  str(ue_row['Paper']).strip() + "_" + \
+                                  str(ue_row['Paper Code']).strip() + "_" + \
+                                  str(ue_row['Paper Name']).strip()
+                    if sp_exam_key == ue_exam_key:
+                        is_relevant_exam = True
+                        break
+                
+                if is_relevant_exam:
+                    for i in range(1, 11):
+                        roll_col = f"Roll Number {i}"
+                        if roll_col in sp_row and pd.notna(sp_row[roll_col]) and str(sp_row[roll_col]).strip() != '':
+                            expected_students_in_room += 1
+            
+            # Get assigned students for this room for the selected session
+            room_assigned_students_df = assigned_seats_df[
+                (assigned_seats_df["Room Number"] == room_num) &
+                (assigned_seats_df["Date"] == selected_report_date) &
+                (assigned_seats_df["Shift"] == selected_report_shift)
+            ]
+            assigned_students_in_room = len(room_assigned_students_df)
+            
+            # Collect assigned roll numbers and their seats for display
+            if not room_assigned_students_df.empty:
+                # Sort by seat number for better readability
+                def sort_seat_number_for_display(seat):
+                    if isinstance(seat, str):
+                        if seat.endswith('A'):
+                            return (0, int(seat[:-1]))
+                        elif seat.endswith('B'):
+                            return (1, int(seat[:-1]))
+                        elif seat.isdigit():
+                            return (2, int(seat))
+                    return (3, seat)
+                
+                room_assigned_students_df['sort_key'] = room_assigned_students_df['Seat Number'].apply(sort_seat_number_for_display)
+                sorted_room_assigned = room_assigned_students_df.sort_values(by='sort_key').drop(columns=['sort_key'])
+
+                for _, assigned_row in sorted_room_assigned.iterrows():
+                    assigned_roll_numbers_list.append(
+                        f"{assigned_row['Roll Number']} (Seat: {assigned_row['Seat Number']}, Paper: {assigned_row['Paper Code']})"
+                    )
+            
+            remaining_capacity = expected_students_in_room - assigned_students_in_room
+            occupancy_percentage = (assigned_students_in_room / expected_students_in_room * 100) if expected_students_in_room > 0 else 0
+
+            room_occupancy_data.append({
+                'Room Number': room_num,
+                'Total Expected Students': expected_students_in_room,
+                'Assigned Students': assigned_students_in_room,
+                'Remaining Capacity': remaining_capacity,
+                'Occupancy (%)': f"{occupancy_percentage:.2f}%",
+                'Assigned Roll Numbers (Details)': ", ".join(assigned_roll_numbers_list) if assigned_roll_numbers_list else "N/A"
+            })
+        
+        if room_occupancy_data:
+            df_occupancy = pd.DataFrame(room_occupancy_data)
+            st.dataframe(df_occupancy)
+            
+            # Optional: Download button for this report
+            csv_occupancy = df_occupancy.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Room Occupancy Report as CSV",
+                data=csv_occupancy,
+                file_name=f"room_occupancy_report_{selected_report_date}_{selected_report_shift}.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("No room occupancy data found for the selected date and shift.")
+
+# NEW FUNCTION: Generate Room Chart in specified format
+def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_df, timetable_df):
+    output_string_parts = []
+
+    # 1. Get header information from timetable
+    relevant_tt_exams = timetable_df[
+        (timetable_df["Date"].astype(str).str.strip() == date_str) &
+        (timetable_df["Shift"].astype(str).str.strip().lower() == shift.lower())
+    ]
+
+    if relevant_tt_exams.empty:
+        return "No exams found for the selected date and shift to generate room chart."
+
+    # Extract common info for header (assuming they are consistent for a given date/shift)
+    exam_time = relevant_tt_exams.iloc[0]["Time"].strip() if "Time" in relevant_tt_exams.columns else ""
+    
+    # Determine the class summary for the header
+    unique_classes = relevant_tt_exams['Class'].dropna().astype(str).str.strip().unique()
+    class_summary_header = ""
+    if len(unique_classes) == 1:
+        class_summary_header = f"{unique_classes[0]} Examination {datetime.datetime.now().year}"
+    elif len(unique_classes) > 1:
+        class_summary_header = f"Various Classes Examination {datetime.datetime.now().year}"
+    else:
+        class_summary_header = f"Examination {datetime.datetime.now().year}"
+
+    # Static header lines
+    output_string_parts.append(",,,,,,,,,\nजीवाजी विश्वविद्यालय ग्वालियर ,,,,,,,,,\n\"परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107 \",,,,,,,,,\n")
+    output_string_parts.append(f"{class_summary_header},,,,,,,,,\n")
+    output_string_parts.append(f"Date :- ,,{date_str},,Shift :-,{shift},,Time :- ,,\n")
+
+    # 2. Get all assigned students for the given date and shift
+    assigned_students_for_session = assigned_seats_df[
+        (assigned_seats_df["Date"] == date_str) &
+        (assigned_seats_df["Shift"] == shift)
+    ].copy()
+
+    if assigned_students_for_session.empty:
+        output_string_parts.append("\nNo students assigned seats for this date and shift.")
+        return "".join(output_string_parts)
+
+    # Merge with timetable to get full paper names and Class
+    # Ensure paper codes are comparable (e.g., int vs str)
+    assigned_students_for_session['Paper Code'] = assigned_students_for_session['Paper Code'].astype(str)
+    timetable_df['Paper Code'] = timetable_df['Paper Code'].astype(str)
+
+    assigned_students_for_session = pd.merge(
+        assigned_students_for_session,
+        timetable_df[['Paper Code', 'Paper Name', 'Class']], # Need Class for the summary line
+        on='Paper Code',
+        how='left',
+        suffixes=('', '_tt') # Suffixes are applied only if column names are duplicated in both DFs
+    )
+    # Use Paper Name from timetable if available, otherwise from assigned_seats_df
+    assigned_students_for_session['Paper Name'] = assigned_students_for_session['Paper Name_tt'].fillna(assigned_students_for_session['Paper Name'])
+    
+    # Corrected: Access 'Class' directly, as it would not have been suffixed if not present in assigned_seats_df
+    assigned_students_for_session['Class'] = assigned_students_for_session['Class'].fillna('') 
+
+    # Sort by Room Number, then by Seat Number
+    def sort_seat_number_key(seat):
+        if isinstance(seat, str):
+            match_a = re.match(r'(\d+)A', seat)
+            match_b = re.match(r'(\d+)B', seat)
+            if match_a:
+                return (0, int(match_a.group(1))) # A-seats first
+            elif match_b:
+                return (1, int(match_b.group(1))) # B-seats second
+            elif seat.isdigit():
+                return (2, int(seat)) # Numeric seats last
+        return (3, seat) # Fallback for unexpected formats
+
+    assigned_students_for_session['sort_key'] = assigned_students_for_session['Seat Number'].apply(sort_seat_number_key)
+    assigned_students_for_session = assigned_students_for_session.sort_values(by=['Room Number', 'sort_key']).drop(columns=['sort_key'])
+
+    # Group by room for output
+    students_by_room = assigned_students_for_session.groupby('Room Number')
+
+    for room_num, room_data in students_by_room:
+        output_string_parts.append(f"\n,,,कक्ष  :-,{room_num}  ,,,,\n") # Room header
+        
+        # Get unique papers for this room and session for the "परीक्षा का नाम" line
+        unique_papers_in_room = room_data[['Class', 'Paper Code', 'Paper Name']].drop_duplicates()
+        
+        for _, paper_row in unique_papers_in_room.iterrows():
+            paper_class = str(paper_row['Class']).strip()
+            paper_code = str(paper_row['Paper Code']).strip()
+            paper_name = str(paper_row['Paper Name']).strip()
+            
+            # Count students for this specific paper in this room
+            students_for_this_paper_in_room = room_data[
+                (room_data['Paper Code'].astype(str).str.strip() == paper_code) &
+                (room_data['Paper Name'].astype(str).str.strip() == paper_name)
+            ]
+            num_students_for_paper = len(students_for_this_paper_in_room)
+
+            output_string_parts.append(
+                f"परीक्षा का नाम (Class - mode - Type),,,प्रश्न पत्र (paper- paper code - paper name),,,,उत्तर पुस्तिकाएं (number of students),,\n"
+                f",,,,,,,प्राप्त ,प्रयुक्त ,शेष \n"
+                f"{paper_class} - Regular - Regular,,,{paper_code} - {paper_name}        ,,,,{num_students_for_paper},,\n" # Assuming Regular for now
+            )
+            output_string_parts.append(",,,,,,,,,\n") # Blank line
+
+        output_string_parts.append(",,,,,,,,,\n") # Blank line
+        output_string_parts.append(f",,,Total,,,,{len(room_data)},,\n") # Total for the room
+        output_string_parts.append(",,,,,,,,,\n") # Blank line
+        output_string_parts.append("roll number - (room number-seat number) - 20 letters of paper name,,,,,,,,,\n")
+
+        # Now add the roll number lines
+        current_line_students = []
+        for _, student_row in room_data.iterrows():
+            roll_num = str(student_row['Roll Number']).strip()
+            room_num_display = str(student_row['Room Number']).strip()
+            seat_num_display = str(student_row['Seat Number']).strip()
+            paper_name_display = str(student_row['Paper Name']).strip()
+            
+            # Truncate paper name to first 20 characters
+            truncated_paper_name = paper_name_display[:20]
+
+            student_entry = f"{roll_num}(कक्ष-{room_num_display}-सीट-{seat_num_display})-{truncated_paper_name}"
+            current_line_students.append(student_entry)
+
+            if len(current_line_students) == 10:
+                output_string_parts.append(",".join(current_line_students) + "\n")
+                current_line_students = []
+        
+        # Add any remaining students in the last line for the room
+        if current_line_students:
+            output_string_parts.append(",".join(current_line_students) + "\n")
+        
+        output_string_parts.append("\n") # Add an extra newline between rooms
+
+    return "".join(output_string_parts)
+
 
 # Function to display the Report Panel
 def display_report_panel():
     st.subheader("📊 Exam Session Reports")
 
-    sitting_plan, timetable = load_data()
+    sitting_plan, timetable, assigned_seats_df = load_data() # Load assigned_seats_df here
     all_reports_df = load_cs_reports_csv()
     room_invigilators_df = load_room_invigilator_assignments() # Load room invigilators
 
@@ -1637,7 +1755,7 @@ st.title("Government Law College, Morena (M.P.) Examination Center Module")
 menu = st.radio("Select Module", ["Student View", "Admin Panel", "Centre Superintendent Panel"])
 
 if menu == "Student View":
-    sitting_plan, timetable = load_data()
+    sitting_plan, timetable, assigned_seats_df = load_data() # Load assigned_seats_df here
 
     # Check if dataframes are empty, indicating files were not loaded
     if sitting_plan.empty or timetable.empty:
@@ -1699,7 +1817,7 @@ elif menu == "Admin Panel":
         st.success("Login successful!")
         
         # Load data here, inside the successful login block
-        sitting_plan, timetable = load_data()
+        sitting_plan, timetable, assigned_seats_df = load_data()
 
         # File Upload Section
         st.subheader("📤 Upload Data Files")
@@ -1710,7 +1828,7 @@ elif menu == "Admin Panel":
             success, msg = save_uploaded_file(uploaded_sitting, SITTING_PLAN_FILE)
             if success:
                 st.success(f"{SITTING_PLAN_FILE} uploaded successfully.")
-                sitting_plan, timetable = load_data() # Reload data after successful upload
+                sitting_plan, timetable, assigned_seats_df = load_data() # Reload data after successful upload
             else:
                 st.error(msg)
 
@@ -1719,13 +1837,13 @@ elif menu == "Admin Panel":
             success, msg = save_uploaded_file(uploaded_timetable, TIMETABLE_FILE)
             if success:
                 st.success(f"{TIMETABLE_FILE} uploaded successfully.")
-                sitting_plan, timetable = load_data() # Reload data after successful upload
+                sitting_plan, timetable, assigned_seats_df = load_data() # Reload data after successful upload
             else:
                 st.error(msg)
         
         st.markdown("---")
         st.subheader("Current Data Previews")
-        col_sp, col_tt = st.columns(2)
+        col_sp, col_tt, col_assigned = st.columns(3) # Added a column for assigned_seats
         with col_sp:
             st.write(f"**{SITTING_PLAN_FILE}**")
             if not sitting_plan.empty:
@@ -1738,104 +1856,32 @@ elif menu == "Admin Panel":
                 st.dataframe(timetable)
             else:
                 st.info("No timetable data loaded.")
+        with col_assigned: # Display assigned_seats.csv
+            st.write(f"**{ASSIGNED_SEATS_FILE}**")
+            if not assigned_seats_df.empty:
+                st.dataframe(assigned_seats_df)
+            else:
+                st.info("No assigned seats data loaded.")
 
         st.markdown("---") # Separator
 
         # Admin Panel Options
         admin_option = st.radio("Select Admin Task:", [
-            "Generate Room Chart",
             "Get All Students for Date & Shift (Room Wise)",
             "Get All Students for Date & Shift (Roll Number Wise)",
             "Update Timetable Details",
-            "Update Sitting Plan Details", # New task
-            "Data Processing & Reports", # New section for integrations
+            "Assign Rooms & Seats to Students", # Renamed option
+            "Room Occupancy Report", # New option
+            "Room Chart Report", # New option for room chart
+            "Data Processing & Reports",
             "Report Panel"
         ])
 
         # Conditional rendering based on data availability for core functions
         # Individual functions will now check for data and display warnings.
             
-        if admin_option == "Generate Room Chart":
-            st.subheader("📊 Generate Room Chart")
-            if sitting_plan.empty or timetable.empty:
-                st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' to use this feature.")
-            else:
-                # Input fields for chart generation
-                chart_date_input = st.date_input("Select Exam Date for Chart", value=datetime.date.today())
-                chart_shift_options = ["Morning", "Evening"]
-                chart_shift = st.selectbox("Select Shift", chart_shift_options)
-                
-                all_room_numbers = sitting_plan['Room Number'].dropna().astype(str).str.strip().unique()
-                selected_room_number_for_chart = st.selectbox("Select Room Number", [""] + sorted(all_room_numbers.tolist()))
-
-                if st.button("Generate Chart"):
-                    if not (selected_room_number_for_chart):
-                        st.warning("Please select a Room Number to generate the chart.")
-                    else:
-                        chart_data_for_excel, error_message = generate_room_chart(
-                            chart_date_input.strftime('%d-%m-%Y'),
-                            chart_shift,
-                            selected_room_number_for_chart,
-                            sitting_plan,
-                            timetable
-                        )
-                        if chart_data_for_excel:
-                            st.success("Room Chart Generated!")
-                            
-                            # Display the chart data in Streamlit
-                            start_display_idx = -1
-                            for idx, row in enumerate(chart_data_for_excel):
-                                if row and isinstance(row[0], str) and "अनुक्रमांक ( कक्ष क्र. - सीट क्र.)" in row[0]: # Updated string
-                                    start_display_idx = idx
-                                    break
-                            
-                            if start_display_idx != -1:
-                                st.dataframe(pd.DataFrame(chart_data_for_excel[start_display_idx:]))
-                            else:
-                                st.dataframe(pd.DataFrame(chart_data_for_excel))
-
-
-                            output = io.BytesIO()
-                            workbook = Workbook()
-                            sheet = workbook.active
-                            sheet.title = "Room Chart"
-
-                            for row_data in chart_data_for_excel:
-                                sheet.append(row_data)
-
-                            for col_idx, col_cells in enumerate(sheet.columns):
-                                max_length = 0
-                                for cell in col_cells:
-                                    try:
-                                        if cell.value is not None:
-                                            cell_value_str = str(cell.value)
-                                            current_length = max(len(line) for line in cell_value_str.split('\n'))
-                                            if current_length > max_length:
-                                                max_length = current_length
-                                    except Exception as e:
-                                        st.error(f"Error processing cell: {e}")
-                                        pass
-                            adjusted_width = (max_length + 2)
-                            sheet.column_dimensions[get_column_letter(col_idx + 1)].width = adjusted_width
-
-                            workbook.save(output)
-                            processed_data = output.getvalue()
-
-                            file_name = (
-                                f"room_chart_R{selected_room_number_for_chart}_"
-                                f"{chart_date_input.strftime('%Y%m%d')}_"
-                                f"{chart_shift.lower()}.xlsx"
-                            )
-                            st.download_button(
-                                label="Download Room Chart as Excel",
-                                data=processed_data,
-                                file_name=file_name,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                        else:
-                            st.error(f"Failed to generate chart: {error_message}")
         
-        elif admin_option == "Get All Students for Date & Shift (Room Wise)":
+        if admin_option == "Get All Students for Date & Shift (Room Wise)":
             st.subheader("List All Students for a Date and Shift (Room Wise)")
             if sitting_plan.empty or timetable.empty:
                 st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' to use this feature.")
@@ -2089,368 +2135,336 @@ elif menu == "Admin Panel":
                             if success:
                                 st.success(f"Timetable details updated for {len(indices_to_update)} entries and saved successfully.")
                                 # Reload data to reflect changes in the app
-                                sitting_plan, timetable = load_data() 
+                                sitting_plan, timetable, assigned_seats_df = load_data() 
                                 st.rerun()
                             else:
                                 st.error(msg)
                         else:
                             st.warning("No entries matched your filters to apply updates.")
 
-        elif admin_option == "Update Sitting Plan Details":
-            st.subheader("✏️ Update Sitting Plan Details")
-            if sitting_plan.empty:
-                st.info("No sitting plan data loaded. Please upload 'sitting_plan.csv' first using the 'Upload Data Files' section.")
+        elif admin_option == "Assign Rooms & Seats to Students": # Replaced with assign_seats_app.py logic
+            st.subheader("📘 Room & Seat Assignment Tool")
+            st.markdown("""
+            This tool helps manage seat assignments for exams, offering real-time status updates,
+            capacity warnings, and clear error messages based on your selected seat format.
+            """)
+
+            if sitting_plan.empty or timetable.empty:
+                st.error(f"Error: `{SITTING_PLAN_FILE}` or `{TIMETABLE_FILE}` not found. Please upload these files to run the assignment tool.")
+                st.stop() # Stop execution if critical files are missing
+
+            # --- Session State for consistent UI updates ---
+            if 'current_room_status_a_rem' not in st.session_state:
+                st.session_state.current_room_status_a_rem = None
+            if 'current_room_status_b_rem' not in st.session_state:
+                st.session_state.current_room_status_b_rem = None
+            if 'current_room_status_total_rem' not in st.session_state:
+                st.session_state.current_room_status_total_rem = None
+
+            # --- Input Widgets ---
+            st.subheader("Exam Details")
+            # Ensure date and shift options are available from timetable
+            date_options = sorted(timetable["Date"].dropna().unique())
+            shift_options = sorted(timetable["Shift"].dropna().unique())
+
+            if not date_options or not shift_options:
+                st.warning("Timetable is empty or missing Date/Shift information. Please upload a complete timetable.")
             else:
-                st.write("Current Sitting Plan Preview:")
-                st.dataframe(sitting_plan)
+                date = st.selectbox("Select Exam Date", date_options, key="assign_date_select")
+                shift = st.selectbox("Select Shift", shift_options, key="assign_shift_select")
 
+                # --- NEW: Paper-wise summary chart for the selected session ---
                 st.markdown("---")
-                st.write("Select filters to specify which entries to update:")
-                
-                # Filters for sitting plan update
-                # Link to timetable dates/shifts to ensure valid exam sessions
-                unique_dates_tt = sorted(timetable['Date'].astype(str).unique().tolist()) if not timetable.empty else []
-                unique_shifts_tt = sorted(timetable['Shift'].astype(str).unique().tolist()) if not timetable.empty else []
-
-                filter_date_sp_update = st.selectbox("Filter by Exam Date", ["All"] + unique_dates_tt, key="filter_date_sp_update")
-                filter_shift_sp_update = st.selectbox("Filter by Exam Shift", ["All"] + unique_shifts_tt, key="filter_shift_sp_update")
-
-                unique_classes_sp = sorted(sitting_plan['Class'].dropna().astype(str).unique().tolist())
-                unique_paper_codes_sp = sorted(sitting_plan['Paper Code'].dropna().astype(str).unique().tolist())
-                unique_paper_sp = sorted(sitting_plan['Paper'].dropna().astype(str).unique().tolist())
-                unique_paper_names_sp = sorted(sitting_plan['Paper Name'].dropna().astype(str).unique().tolist())
-                unique_room_numbers_sp = sorted(sitting_plan['Room Number'].dropna().astype(str).unique().tolist())
-                unique_modes_sp = sorted(sitting_plan['Mode'].dropna().astype(str).unique().tolist())
-                unique_types_sp = sorted(sitting_plan['Type'].dropna().astype(str).unique().tolist())
-
-                filter_class_sp_update = st.selectbox("Filter by Class", ["All"] + unique_classes_sp, key="filter_class_sp_update")
-                filter_paper_code_sp_update = st.selectbox("Filter by Paper Code", ["All"] + unique_paper_codes_sp, key="filter_paper_code_sp_update")
-                filter_paper_sp_update = st.selectbox("Filter by Paper", ["All"] + unique_paper_sp, key="filter_paper_sp_update")
-                filter_paper_name_sp_update = st.selectbox("Filter by Paper Name", ["All"] + unique_paper_names_sp, key="filter_paper_name_sp_update")
-                filter_room_sp_update = st.selectbox("Filter by Room Number", ["All"] + unique_room_numbers_sp, key="filter_room_sp_update")
-                filter_mode_sp_update = st.selectbox("Filter by Mode", ["All"] + unique_modes_sp, key="filter_mode_sp_update")
-                filter_type_sp_update = st.selectbox("Filter by Type", ["All"] + unique_types_sp, key="filter_type_sp_update")
-
+                st.subheader("Session Student Summary (Assigned vs. Unassigned)")
+                session_paper_summary_df = get_session_paper_summary(date, shift, sitting_plan, assigned_seats_df, timetable)
+                if not session_paper_summary_df.empty:
+                    st.dataframe(session_paper_summary_df)
+                else:
+                    st.info("No student data found for the selected date and shift.")
                 st.markdown("---")
-                st.write("Entries that will be updated based on your filters:")
-                
-                temp_filtered_sp = sitting_plan.copy()
+                # --- END NEW ---
 
-                # Apply filters from sitting plan directly
-                if filter_class_sp_update != "All":
-                    temp_filtered_sp = temp_filtered_sp[temp_filtered_sp['Class'].astype(str) == filter_class_sp_update]
-                if filter_paper_code_sp_update != "All":
-                    temp_filtered_sp = temp_filtered_sp[temp_filtered_sp['Paper Code'].astype(str) == filter_paper_code_sp_update]
-                if filter_paper_sp_update != "All":
-                    temp_filtered_sp = temp_filtered_sp[temp_filtered_sp['Paper'].astype(str) == filter_paper_sp_update]
-                if filter_paper_name_sp_update != "All":
-                    temp_filtered_sp = temp_filtered_sp[temp_filtered_sp['Paper Name'].astype(str) == filter_paper_name_sp_update]
-                if filter_room_sp_update != "All":
-                    temp_filtered_sp = temp_filtered_sp[temp_filtered_sp['Room Number'].astype(str) == filter_room_sp_update]
-                if filter_mode_sp_update != "All":
-                    temp_filtered_sp = temp_filtered_sp[temp_filtered_sp['Mode'].astype(str) == filter_mode_sp_update]
-                if filter_type_sp_update != "All":
-                    temp_filtered_sp = temp_filtered_sp[temp_filtered_sp['Type'].astype(str) == filter_type_sp_update]
+                # Filter relevant papers based on selected date and shift
+                filtered_papers = timetable[(timetable["Date"] == date) & (timetable["Shift"] == shift)]
+                paper_options = filtered_papers[["Paper Code", "Paper Name"]].drop_duplicates().values.tolist()
+                paper_display = [f"{code} - {name}" for code, name in paper_options]
 
-                # Apply date/shift filters by linking to timetable
-                if filter_date_sp_update != "All" and filter_shift_sp_update != "All" and not timetable.empty:
-                    # Get unique (Class, Paper, Paper Code, Paper Name) combinations for the selected date/shift from timetable
-                    relevant_exams_tt = timetable[
-                        (timetable['Date'].astype(str) == filter_date_sp_update) &
-                        (timetable['Shift'].astype(str) == filter_shift_sp_update)
-                    ][['Class', 'Paper', 'Paper Code', 'Paper Name']].drop_duplicates()
+                selected_paper = st.selectbox("Select Paper Code and Name", paper_display, key="assign_paper_select")
+
+                # Only proceed if a paper is selected
+                if selected_paper:
+                    paper_code = selected_paper.split(" - ")[0].strip()
+                    paper_name = selected_paper.split(" - ", 1)[1].strip()
+
+                    st.subheader("Room & Seat Configuration")
+                    # Added .strip() to handle potential leading/trailing spaces in room input
+                    room = st.text_input("Enter Room Number (e.g., 1, G230)", key="room_input").strip()
+
+                    # Enhanced capacity input
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        total_capacity = st.number_input("Enter Total Room Capacity (for '1 to N' format)", min_value=1, max_value=200, value=60, key="total_capacity_input")
+                    with col2:
+                        capacity_per_format = st.number_input("Capacity per Format (for 'A/B' formats)", min_value=1, max_value=100, value=30, key="capacity_per_format_input")
+
+                    seat_format = st.radio("Select Seat Assignment Format:", ["1 to N", "1A to NA", "1B to NB"], key="seat_format_radio")
+
+                    # --- Show current room status BEFORE assignment ---
+                    if room:
+                        # Get all assigned seats for the current room, date, and shift
+                        room_assigned_seats_current = assigned_seats_df[
+                            (assigned_seats_df["Room Number"] == room) &
+                            (assigned_seats_df["Date"] == date) &
+                            (assigned_seats_df["Shift"] == shift)
+                        ]["Seat Number"].tolist()
+
+                        # Calculate used seats for A, B, and no-suffix formats
+                        a_seats_used_current = len([s for s in room_assigned_seats_current if s.endswith("A")])
+                        b_seats_used_current = len([s for s in room_assigned_seats_current if s.endswith("B")])
+                        no_suffix_seats_used_current = len([s for s in room_assigned_seats_current if not s.endswith("A") and not s.endswith("B")])
+
+                        st.subheader("📊 Current Room Status")
+                        if seat_format in ["1A to NA", "1B to NB"]:
+                            a_remaining_current = capacity_per_format - a_seats_used_current
+                            b_remaining_current = capacity_per_format - b_seats_used_current
+                            st.info(f"A-format: **{a_remaining_current}** remaining ({a_seats_used_current}/{capacity_per_format} used)")
+                            st.info(f"B-format: **{b_remaining_current}** remaining ({b_seats_used_current}/{capacity_per_format} used)")
+                            st.session_state.current_room_status_a_rem = a_remaining_current
+                            st.session_state.current_room_status_b_rem = b_remaining_current
+                            st.session_state.current_room_status_total_rem = None # Clear total if A/B is selected
+                        else: # 1 to N format
+                            remaining_current = total_capacity - no_suffix_seats_used_current
+                            st.info(f"Total: **{remaining_current}** seats remaining ({no_suffix_seats_used_current}/{total_capacity} used)")
+                            st.session_state.current_room_status_total_rem = remaining_current
+                            st.session_state.current_room_status_a_rem = None # Clear A/B if total is selected
+                            st.session_state.current_room_status_b_rem = None
+
+
+                    st.markdown("---")
+
+                    # --- Assign Seats Button ---
+                    if st.button("✅ Assign Seats", key="assign_button"):
+                        if not room:
+                            st.error("Please enter a Room Number before assigning seats.")
+                            st.stop()
+
+                        # Extract roll numbers for the selected paper from sitting_plan
+                        roll_cols = [col for col in sitting_plan.columns if col.lower().startswith("roll number")]
+                        # Ensure Paper Code is treated as string for comparison
+                        paper_rows = sitting_plan[sitting_plan["Paper Code"].astype(str) == paper_code]
+                        all_rolls = paper_rows[roll_cols].values.flatten()
+                        all_rolls = [str(r).strip() for r in all_rolls if str(r).strip() and str(r).lower() != 'nan']
+
+                        # Remove previously assigned roll numbers for this paper/date/shift
+                        already_assigned_rolls = assigned_seats_df[
+                            (assigned_seats_df["Paper Code"].astype(str) == paper_code) &
+                            (assigned_seats_df["Date"] == date) &
+                            (assigned_seats_df["Shift"] == shift)
+                        ]["Roll Number"].astype(str).tolist()
+
+                        unassigned_rolls = [r for r in all_rolls if r not in already_assigned_rolls]
+
+                        if not unassigned_rolls:
+                            st.warning("⚠️ All students for this paper are already assigned for this date/shift!")
+                            st.stop()
+
+                        # Determine seat format and capacity for the assignment logic
+                        suffix = ""
+                        format_capacity_for_assignment = 0 # Initialize
+
+                        if seat_format == "1 to N":
+                            suffix = ""
+                            format_capacity_for_assignment = total_capacity
+                        elif seat_format == "1A to NA":
+                            suffix = "A"
+                            format_capacity_for_assignment = capacity_per_format
+                        elif seat_format == "1B to NB":
+                            suffix = "B"
+                            format_capacity_for_assignment = capacity_per_format
+
+                        # Get a set of all *physically occupied seat keys* for the current room, date, and shift
+                        occupied_physical_seat_keys = set(
+                            (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
+                            for x in assigned_seats_df[
+                                (assigned_seats_df["Room Number"] == room) &
+                                (assigned_seats_df["Date"] == date) &
+                                (assigned_seats_df["Shift"] == shift)
+                            ][['Room Number', 'Seat Number', 'Date', 'Shift']].values
+                        )
+
+                        # Find truly available seat numbers for the selected format.
+                        available_seat_numbers = []
+                        for i in range(1, format_capacity_for_assignment + 1):
+                            prospective_seat_string = f"{i}{suffix}"
+                            prospective_seat_key = (str(room), prospective_seat_string, str(date), str(shift)) # Ensure consistency
+
+                            # A seat is available if its specific key (Room, Seat String, Date, Shift) is NOT already taken
+                            if prospective_seat_key not in occupied_physical_seat_keys:
+                                available_seat_numbers.append(i)
+
+                        # --- Clear Error Messages & No Automatic Format Switching ---
+                        if not available_seat_numbers:
+                            st.error(f"❌ ERROR: No seats available in **{seat_format}** format for Room {room}! Please manually change to a different format (e.g., '1A to NA' or '1B to NB') or room.")
+                            st.stop() # Stop execution after displaying error
+
+                        # --- Capacity Warnings ---
+                        if len(available_seat_numbers) < len(unassigned_rolls):
+                            st.warning(f"⚠️ Capacity Warning: Only **{len(available_seat_numbers)}** seats available in **{seat_format}** format, but **{len(unassigned_rolls)}** students need assignment.")
+                            st.warning(f"💡 This will assign the first **{len(available_seat_numbers)}** students. Remaining students will need assignment in a different format or room.")
+
+                        # Generate actual seat strings with the selected suffix
+                        seats_to_assign_count = min(len(available_seat_numbers), len(unassigned_rolls))
+                        assigned_seat_strings = [f"{available_seat_numbers[i]}{suffix}" for i in range(seats_to_assign_count)]
+
+                        # Assign seats to students
+                        students_to_assign = unassigned_rolls[:seats_to_assign_count]
+                        assigned_rows = []
+
+                        for i, roll in enumerate(students_to_assign):
+                            seat_num_str = assigned_seat_strings[i]
+                            current_assignment_key = (str(room), seat_num_str, str(date), str(shift)) # Ensure consistency
+
+                            # Check if this specific physical seat key is already taken
+                            if current_assignment_key in occupied_physical_seat_keys:
+                                st.warning(f"⚠️ Conflict: Seat **{seat_num_str}** in Room **{room}** is already assigned for this date/shift. Skipping assignment for Roll Number **{roll}**.")
+                            else:
+                                assigned_rows.append({
+                                    "Roll Number": roll,
+                                    "Paper Code": int(paper_code),
+                                    "Paper Name": paper_name,
+                                    "Room Number": room,
+                                    "Seat Number": seat_num_str,
+                                    "Date": date,
+                                    "Shift": shift
+                                })
+                                # Add this new assignment's physical seat key to our occupied set for this batch
+                                occupied_physical_seat_keys.add(current_assignment_key) # Update the set for subsequent assignments in this batch
+
+                        new_assignments_df = pd.DataFrame(assigned_rows)
+
+                        if new_assignments_df.empty:
+                            st.warning("No new unique seats could be assigned in this attempt, possibly due to conflicts with existing assignments.")
+                            # st.stop() # Removed st.stop() to allow further interaction
+                        else:
+                            # Merge new assignments with existing ones and save
+                            assigned_seats_df = pd.concat([assigned_seats_df, new_assignments_df], ignore_index=True)
+                            # Re-add drop_duplicates on Roll Number/Paper Code/Date/Shift to prevent a student
+                            # from being assigned the *same paper* multiple times if the button is clicked repeatedly.
+                            assigned_seats_df.drop_duplicates(subset=["Roll Number", "Paper Code", "Date", "Shift"], inplace=True)
+                            
+                            success, msg = save_uploaded_file(assigned_seats_df, ASSIGNED_SEATS_FILE)
+                            if success:
+                                st.success(f"✅ Successfully assigned **{len(new_assignments_df)}** students to Room **{room}** using **{seat_format}** format.")
+                                st.dataframe(new_assignments_df) # Display only the newly assigned students
+                            else:
+                                st.error(f"Error saving assigned seats: {msg}")
+
+                            # --- Display Updated Room Status AFTER assignment ---
+                            st.subheader("📊 Updated Room Status")
+                            updated_room_assigned_seats = assigned_seats_df[
+                                (assigned_seats_df["Room Number"] == room) &
+                                (assigned_seats_df["Date"] == date) &
+                                (assigned_seats_df["Shift"] == shift)
+                            ]["Seat Number"].tolist()
+
+                            updated_a_seats_used = len([s for s in updated_room_assigned_seats if s.endswith("A")])
+                            updated_b_seats_used = len([s for s in updated_room_assigned_seats if s.endswith("B")])
+                            updated_no_suffix_seats_used = len([s for s in updated_room_assigned_seats if not s.endswith("A") and not s.endswith("B")])
+
+                            if seat_format in ["1A to NA", "1B to NB"]:
+                                updated_a_remaining = capacity_per_format - updated_a_seats_used
+                                updated_b_remaining = capacity_per_format - updated_b_seats_used
+                                st.info(f"A-format: **{updated_a_remaining}** remaining ({updated_a_seats_used}/{capacity_per_format} used)")
+                                st.info(f"B-format: **{updated_b_remaining}** remaining ({updated_b_seats_used}/{capacity_per_format} used)")
+                            else: # 1 to N format
+                                updated_remaining = total_capacity - updated_no_suffix_seats_used
+                                st.info(f"Total: **{updated_remaining}** seats remaining ({updated_no_suffix_seats_used}/{total_capacity} used)")
+
+                            if len(new_assignments_df) < len(unassigned_rolls):
+                                remaining_students_after_assignment = len(unassigned_rolls) - len(new_assignments_df)
+                                st.warning(f"⚠️ **{remaining_students_after_assignment}** students from this paper still need assignment. Please run assignment again, potentially with a different format or room.")
+                            
+                            st.rerun() # Rerun to refresh the dataframes and status
+
+                    st.markdown("---")
+
+                    # --- Display all assignments for the selected room/date/shift ---
+                    if room:
+                        with st.expander(f"📄 View all current assignments for Room {room} on {date} ({shift})"):
+                            room_assignments_display = assigned_seats_df[
+                                (assigned_seats_df["Room Number"] == room) &
+                                (assigned_seats_df["Date"] == date) &
+                                (assigned_seats_df["Shift"] == shift)
+                            ].copy() # Use .copy() to avoid SettingWithCopyWarning
+
+                            if room_assignments_display.empty:
+                                st.info("No assignments yet for this room, date, and shift.")
+                            else:
+                                # Proper sorting for seat numbers (e.g., 1A, 2A, ..., 10A, 1B, 2B)
+                                def sort_seat_number(seat):
+                                    if isinstance(seat, str):
+                                        if seat.endswith('A'):
+                                            return (0, int(seat[:-1])) # Group A seats first
+                                        elif seat.endswith('B'):
+                                            return (1, int(seat[:-1])) # Group B seats second
+                                        elif seat.isdigit():
+                                            return (2, int(seat)) # Group 1 to N seats last
+                                    return (3, seat) # For any unexpected format, put at the end
+
+                                room_assignments_display['sort_key'] = room_assignments_display['Seat Number'].apply(sort_seat_number)
+                                room_assignments_sorted = room_assignments_display.sort_values(by='sort_key').drop('sort_key', axis=1)
+                                st.dataframe(room_assignments_sorted, use_container_width=True)
+
+            # --- Reset Button (outside the paper selection block for broader access) ---
+            st.markdown("---")
+            st.subheader("Maintenance")
+            if st.button("🔄 Reset All Assigned Seats (Clear assigned_seats.csv)", key="reset_button"):
+                if os.path.exists(ASSIGNED_SEATS_FILE):
+                    os.remove(ASSIGNED_SEATS_FILE)
+                    st.success("`assigned_seats.csv` has been deleted. All assignments reset.")
+                else:
+                    st.info("No `assigned_seats.csv` found to reset.")
+                st.rerun() # Rerun the app to reflect the changes
+
+        elif admin_option == "Room Occupancy Report": # New Room Occupancy Report section
+            display_room_occupancy_report(sitting_plan, assigned_seats_df, timetable)
+
+        elif admin_option == "Room Chart Report": # New Room Chart Report section
+            st.subheader("📄 Room Chart Report")
+            st.info("Generate a detailed room chart showing student seating arrangements for a specific exam session.")
+
+            if sitting_plan.empty or timetable.empty or assigned_seats_df.empty:
+                st.warning("Please upload 'sitting_plan.csv', 'timetable.csv', and ensure seats are assigned via 'Assign Rooms & Seats to Students' to generate this report.")
+                st.stop() # Use st.stop() to halt execution if critical data is missing
+            
+            # Date and Shift filters for the room chart
+            chart_date_options = sorted(timetable["Date"].dropna().unique())
+            chart_shift_options = sorted(timetable["Shift"].dropna().unique())
+
+            if not chart_date_options or not chart_shift_options:
+                st.info("No exam dates or shifts found in the timetable to generate a room chart.")
+                st.stop() # Use st.stop() to halt execution if no options
+
+            selected_chart_date = st.selectbox("Select Date", chart_date_options, key="room_chart_date")
+            selected_chart_shift = st.selectbox("Select Shift", chart_shift_options, key="room_chart_shift")
+
+            if st.button("Generate Room Chart"):
+                with st.spinner("Generating room chart..."):
+                    room_chart_text = generate_room_chart_report(selected_chart_date, selected_chart_shift, sitting_plan, assigned_seats_df, timetable)
                     
-                    # Merge to filter sitting plan based on these relevant exams
-                    if not relevant_exams_tt.empty:
-                        # Ensure columns used for merging are of consistent type
-                        temp_filtered_sp['Class'] = temp_filtered_sp['Class'].astype(str)
-                        temp_filtered_sp['Paper'] = temp_filtered_sp['Paper'].astype(str)
-                        temp_filtered_sp['Paper Code'] = temp_filtered_sp['Paper Code'].astype(str)
-                        temp_filtered_sp['Paper Name'] = temp_filtered_sp['Paper Name'].astype(str)
-
-                        relevant_exams_tt['Class'] = relevant_exams_tt['Class'].astype(str)
-                        relevant_exams_tt['Paper'] = relevant_exams_tt['Paper'].astype(str)
-                        relevant_exams_tt['Paper Code'] = relevant_exams_tt['Paper Code'].astype(str)
-                        relevant_exams_tt['Paper Name'] = relevant_exams_tt['Paper Name'].astype(str)
-
-                        temp_filtered_sp = pd.merge(
-                            temp_filtered_sp,
-                            relevant_exams_tt,
-                            on=['Class', 'Paper', 'Paper Code', 'Paper Name'],
-                            how='inner'
+                    if room_chart_text:
+                        st.text_area("Generated Room Chart", room_chart_text, height=600)
+                        
+                        # Download button
+                        file_name = f"room_chart_{selected_chart_date}_{selected_chart_shift}.csv"
+                        st.download_button(
+                            label="Download Room Chart as CSV",
+                            data=room_chart_text.encode('utf-8'),
+                            file_name=file_name,
+                            mime="text/csv",
                         )
                     else:
-                        temp_filtered_sp = pd.DataFrame(columns=sitting_plan.columns) # No matching exams
-
-                if temp_filtered_sp.empty:
-                    st.info("No entries match the selected filters. No updates will be applied.")
-                else:
-                    st.dataframe(temp_filtered_sp)
-
-                st.markdown("---")
-                st.write("Enter new values for 'Room Number', 'Mode', and 'Type' for the filtered entries:")
-                
-                # Provide default values from the first row of the *filtered* sitting plan if available
-                default_room_sp_update = ""
-                if not temp_filtered_sp.empty and 'Room Number' in temp_filtered_sp.columns and pd.notna(temp_filtered_sp['Room Number'].iloc[0]):
-                    default_room_sp_update = str(temp_filtered_sp['Room Number'].iloc[0]).strip()
-                
-                default_mode_sp_update = ""
-                if not temp_filtered_sp.empty and 'Mode' in temp_filtered_sp.columns and pd.notna(temp_filtered_sp['Mode'].iloc[0]):
-                    default_mode_sp_update = str(temp_filtered_sp['Mode'].iloc[0]).strip()
-                
-                default_type_sp_update = ""
-                if not temp_filtered_sp.empty and 'Type' in temp_filtered_sp.columns and pd.notna(temp_filtered_sp['Type'].iloc[0]):
-                    default_type_sp_update = str(temp_filtered_sp['Type'].iloc[0]).strip()
-
-                update_room_number = st.text_input("New Room Number", value=default_room_sp_update, key="update_sp_room")
-                update_mode = st.text_input("New Mode (e.g., Regular, EX, Supplimentary)", value=default_mode_sp_update, key="update_sp_mode")
-                update_type = st.text_input("New Type (e.g., Regular, EX)", value=default_type_sp_update, key="update_sp_type")
-
-                if st.button("Apply Updates and Save Sitting Plan (Manual Filters)"): # Renamed button for clarity
-                    if temp_filtered_sp.empty:
-                        st.warning("No entries matched your filters, so no updates were applied.")
-                    else:
-                        sitting_plan_modified = sitting_plan.copy()
-                        
-                        # Identify indices to update in the original DataFrame based on the current filters
-                        # Need to make sure the filtering logic here matches the display filtering above
-                        filtered_indices = sitting_plan_modified[
-                            (sitting_plan_modified['Class'].astype(str) == filter_class_sp_update if filter_class_sp_update != "All" else True) &
-                            (sitting_plan_modified['Paper Code'].astype(str) == filter_paper_code_sp_update if filter_paper_code_sp_update != "All" else True) &                     (sitting_plan_modified['Paper'].astype(str) == filter_paper_sp_update if filter_paper_sp_update != "All" else True) &
-                            (sitting_plan_modified['Paper Name'].astype(str) == filter_paper_name_sp_update if filter_paper_name_sp_update != "All" else True) &
-                            (sitting_plan_modified['Room Number'].astype(str) == filter_room_sp_update if filter_room_sp_update != "All" else True) &
-                            (sitting_plan_modified['Mode'].astype(str) == filter_mode_sp_update if filter_mode_sp_update != "All" else True) &
-                            (sitting_plan_modified['Type'].astype(str) == filter_type_sp_update if filter_type_sp_update != "All" else True)
-                        ].index
-
-                        # Further refine indices based on timetable date/shift if filters were applied
-                        if filter_date_sp_update != "All" and filter_shift_sp_update != "All" and not timetable.empty:
-                            relevant_exams_tt = timetable[
-                                (timetable['Date'].astype(str) == filter_date_sp_update) &
-                                (timetable['Shift'].astype(str) == filter_shift_sp_update)
-                            ][['Class', 'Paper', 'Paper Code', 'Paper Name']].drop_duplicates()
-                            
-                            if not relevant_exams_tt.empty:
-                                # Create a temporary merge key for filtering
-                                sitting_plan_modified['temp_merge_key'] = sitting_plan_modified['Class'].astype(str) + sitting_plan_modified['Paper'].astype(str) + sitting_plan_modified['Paper Code'].astype(str) + sitting_plan_modified['Paper Name'].astype(str)
-                                relevant_exams_tt['temp_merge_key'] = relevant_exams_tt['Class'].astype(str) + relevant_exams_tt['Paper'].astype(str) + relevant_exams_tt['Paper Code'].astype(str) + relevant_exams_tt['Paper Name'].astype(str)
-
-                                indices_from_timetable_match = sitting_plan_modified[
-                                    sitting_plan_modified['temp_merge_key'].isin(relevant_exams_tt['temp_merge_key'])
-                                ].index
-                                
-                                # Intersect the two sets of indices
-                                indices_to_update = filtered_indices.intersection(indices_from_timetable_match)
-                                sitting_plan_modified.drop(columns=['temp_merge_key'], inplace=True) # Clean up temp column
-                            else:
-                                indices_to_update = pd.Index([]) # No relevant exams, so no updates
-                        else:
-                            indices_to_update = filtered_indices # If no date/shift filter, use the sitting plan filters directly
-
-                        # Apply updates only to the identified rows
-                        if not indices_to_update.empty:
-                            if update_room_number:
-                                sitting_plan_modified.loc[indices_to_update, 'Room Number'] = update_room_number
-                            if update_mode:
-                                sitting_plan_modified.loc[indices_to_update, 'Mode'] = update_mode
-                            if update_type:
-                                sitting_plan_modified.loc[indices_to_update, 'Type'] = update_type
-
-                            success, msg = save_uploaded_file(sitting_plan_modified, SITTING_PLAN_FILE)
-                            if success:
-                                st.success(f"Sitting Plan details updated for {len(indices_to_update)} entries and saved successfully.")
-                                # Reload data to reflect changes in the app
-                                sitting_plan, timetable = load_data() 
-                                st.rerun()
-                            else:
-                                st.error(msg)
-                        else:
-                            st.warning("No entries matched your filters to apply updates.")
-
-                st.markdown("---")
-                st.subheader("Assign Rooms and Seats to Students")
-                st.info("First, select a Date and Shift, then click 'Load Unassigned Students' to see who needs seating. Then, you can assign a Room Number to a range of these students, and sequential seat numbers will be automatically assigned.")
-
-                assign_sp_date = st.date_input("Select Exam Date for Assignment", value=datetime.date.today(), key="assign_sp_date")
-                assign_sp_shift = st.selectbox("Select Shift for Assignment", ["Morning", "Evening"], key="assign_sp_shift")
-
-                # New: Filter by Paper for unassigned students
-                # Get unique papers for the selected date/shift from timetable
-                relevant_papers_for_shift = []
-                if not timetable.empty:
-                    filtered_tt_for_papers = timetable[
-                        (timetable["Date"].astype(str).str.strip() == assign_sp_date.strftime('%d-%m-%Y')) &
-                        (timetable["Shift"].astype(str).str.strip().str.lower() == assign_sp_shift.lower())
-                    ]
-                    relevant_papers_for_shift = sorted(filtered_tt_for_papers['Paper Name'].dropna().astype(str).unique().tolist())
-                
-                filter_unassigned_paper = st.selectbox("Filter Unassigned Students by Paper Name", ["All"] + relevant_papers_for_shift, key="filter_unassigned_paper")
-
-
-                if st.button("Load Unassigned Students"):
-                    if sitting_plan.empty or timetable.empty:
-                        st.warning("Please upload both 'sitting_plan.csv' and 'timetable.csv' to load unassigned students.")
-                    else:
-                        with st.spinner("Loading unassigned students..."):
-                            unassigned_students_details_list = get_unassigned_students_for_session(
-                                assign_sp_date.strftime('%d-%m-%Y'),
-                                assign_sp_shift,
-                                sitting_plan,
-                                timetable
-                            )
-                            
-                            # Apply paper filter if selected
-                            if filter_unassigned_paper != "All" and unassigned_students_details_list:
-                                unassigned_students_details_list = [
-                                    s for s in unassigned_students_details_list 
-                                    if s['Paper Name'].strip().lower() == filter_unassigned_paper.strip().lower()
-                                ]
-
-                            if unassigned_students_details_list:
-                                st.session_state['unassigned_students_for_session_details'] = unassigned_students_details_list
-                                st.success(f"Found {len(unassigned_students_details_list)} unassigned students for {assign_sp_date.strftime('%d-%m-%Y')} ({assign_sp_shift} Shift) and selected paper.")
-                                st.write("Unassigned Roll Numbers (sorted, with details):")
-                                st.dataframe(pd.DataFrame(st.session_state['unassigned_students_for_session_details']))
-                            else:
-                                st.info("No unassigned students found for this date, shift, and paper, or all students are already assigned rooms.")
-                                st.session_state['unassigned_students_for_session_details'] = []
-
-                # Display unassigned students if loaded
-                if 'unassigned_students_for_session_details' in st.session_state and st.session_state['unassigned_students_for_session_details']:
-                    st.markdown("---")
-                    st.write("Assign Room and Seats to a Range:")
-                    unassigned_students_df = pd.DataFrame(st.session_state['unassigned_students_for_session_details'])
-                    unassigned_roll_numbers_only = unassigned_students_df['Roll Number'].tolist()
-                    
-                    # Ensure roll numbers are sorted for consistent range selection
-                    unassigned_roll_numbers_only.sort()
-
-                    start_roll_num = st.text_input("Start Roll Number in Range", value=unassigned_roll_numbers_only[0] if unassigned_roll_numbers_only else "", key="start_roll_num_assign")
-                    end_roll_num = st.text_input("End Roll Number in Range", value=unassigned_roll_numbers_only[-1] if unassigned_roll_numbers_only else "", key="end_roll_num_assign")
-                    assign_room_number = st.text_input("Assign Room Number", key="assign_room_number_input")
-                    seat_number_range_input = st.text_input("Seat Number Range (e.g., 1A-60A, or 1-60)", key="seat_number_range_input")
-
-                    if st.button("Assign Room and Sequential Seats to Selected Range"):
-                        if not (start_roll_num and end_roll_num and assign_room_number and seat_number_range_input):
-                            st.warning("Please enter Start Roll Number, End Roll Number, Room Number, and Seat Number Range.")
-                        else:
-                            # Validate roll number range against the loaded unassigned students
-                            try:
-                                # Get the actual subset of roll numbers from the unassigned list based on the input range
-                                roll_numbers_to_assign_in_range_filtered = []
-                                for roll in unassigned_roll_numbers_only:
-                                    if start_roll_num <= roll <= end_roll_num:
-                                        roll_numbers_to_assign_in_range_filtered.append(roll)
-                                
-                                if not roll_numbers_to_assign_in_range_filtered:
-                                    st.warning("No unassigned students found in the specified roll number range for the current session and filters.")
-                                else:
-                                    # Generate sequential seat numbers
-                                    try:
-                                        generated_seats = generate_sequential_seats(seat_number_range_input, len(roll_numbers_to_assign_in_range_filtered))
-                                        
-                                        if len(generated_seats) < len(roll_numbers_to_assign_in_range_filtered):
-                                            st.warning(f"Warning: The provided seat range only covers {len(generated_seats)} seats, but there are {len(roll_numbers_to_assign_in_range_filtered)} students in the selected roll number range. Not all students will be assigned a seat.")
-                                            # Truncate roll numbers to match available seats
-                                            roll_numbers_to_assign_in_range_filtered = roll_numbers_to_assign_in_range_filtered[:len(generated_seats)]
-                                        elif len(generated_seats) > len(roll_numbers_to_assign_in_range_filtered):
-                                            st.info(f"Info: The provided seat range has {len(generated_seats)} seats, but there are only {len(roll_numbers_to_assign_in_range_filtered)} students in the selected roll number range. Excess seats will not be used.")
-                                            # Truncate seats to match available students
-                                            generated_seats = generated_seats[:len(roll_numbers_to_assign_in_range_filtered)]
-
-                                    except ValueError as e:
-                                        st.error(f"Error parsing seat range: {e}")
-                                        st.stop()
-                                    except Exception as e:
-                                        st.error(f"An unexpected error occurred while generating seats: {e}")
-                                        st.stop()
-
-                                    sitting_plan_modified = sitting_plan.copy()
-                                    
-                                    assigned_unique_students_in_batch = set() 
-                                    seat_index = 0
-
-                                    relevant_tt_exams = timetable[
-                                        (timetable["Date"].astype(str).str.strip() == assign_sp_date.strftime('%d-%m-%Y')) &
-                                        (timetable["Shift"].astype(str).str.strip().str.lower() == assign_sp_shift.lower())
-                                    ].copy()
-                                    relevant_tt_exams['exam_key'] = relevant_tt_exams['Class'].astype(str).str.strip().str.lower() + "_" + \
-                                                                     relevant_tt_exams['Paper'].astype(str).str.strip() + "_" + \
-                                                                     relevant_tt_exams['Paper Code'].astype(str).str.strip() + "_" + \
-                                                                     relevant_tt_exams['Paper Name'].astype(str).str.strip()
-
-                                    # Iterate through the filtered roll numbers to assign
-                                    for roll_num_to_assign_current in roll_numbers_to_assign_in_range_filtered:
-                                        if seat_index >= len(generated_seats):
-                                            st.warning(f"Ran out of seat numbers in the provided range. Stopped assigning seats after {len(assigned_unique_students_in_batch)} students.")
-                                            break
-
-                                        # Find all rows in sitting_plan_modified that contain this roll number
-                                        # and are relevant to the current date/shift and are currently unassigned a room
-                                        
-                                        candidate_indices = []
-                                        for i in range(1, 11):
-                                            col_name = f"Roll Number {i}"
-                                            if col_name in sitting_plan_modified.columns:
-                                                matching_rows = sitting_plan_modified[
-                                                    (sitting_plan_modified[col_name].astype(str).str.strip() == roll_num_to_assign_current)
-                                                ]
-                                                candidate_indices.extend(matching_rows.index.tolist())
-                                        
-                                        # Filter these candidate indices further:
-                                        # 1. Must be relevant to the selected date/shift (via exam_key match)
-                                        # 2. Must currently have a blank room number (or the room number we are assigning to, if re-assigning)
-                                        # 3. Must match the selected paper filter (if applied)
-                                        indices_to_update_for_this_student = []
-                                        for idx in set(candidate_indices):
-                                            sp_row = sitting_plan_modified.loc[idx]
-                                            sp_exam_key = str(sp_row['Class']).strip().lower() + "_" + \
-                                                          str(sp_row['Paper']).strip() + "_" + \
-                                                          str(sp_row['Paper Code']).strip() + "_" + \
-                                                          str(sp_row['Paper Name']).strip()
-                                            
-                                            current_room_in_sp = str(sp_row['Room Number']).strip()
-                                            
-                                            # Check if exam is relevant AND room is unassigned OR being reassigned to the same room
-                                            # AND if a paper filter is applied, the paper must match
-                                            paper_matches_filter = (filter_unassigned_paper == "All" or 
-                                                                    str(sp_row['Paper Name']).strip().lower() == filter_unassigned_paper.strip().lower())
-
-                                            if sp_exam_key in relevant_tt_exams['exam_key'].values and \
-                                               (not current_room_in_sp or current_room_in_sp == assign_room_number) and \
-                                               paper_matches_filter:
-                                                indices_to_update_for_this_student.append(idx)
-                                        
-                                        if indices_to_update_for_this_student and roll_num_to_assign_current not in assigned_unique_students_in_batch:
-                                            # Assign the room and current_seat_number to all relevant entries for this student
-                                            for idx in indices_to_update_for_this_student:
-                                                sitting_plan_modified.loc[idx, 'Room Number'] = assign_room_number
-                                                # Find which seat number column this roll number belongs to in this specific row
-                                                for i in range(1, 11):
-                                                    if str(sitting_plan_modified.loc[idx, f"Roll Number {i}"]).strip() == roll_num_to_assign_current:
-                                                        sitting_plan_modified.loc[idx, f"Seat Number {i}"] = generated_seats[seat_index]
-                                                        break
-                                            
-                                            assigned_unique_students_in_batch.add(roll_num_to_assign_current)
-                                            seat_index += 1 # Increment seat index for the next unique student
-
-                                    if assigned_unique_students_in_batch:
-                                        success, msg = save_uploaded_file(sitting_plan_modified, SITTING_PLAN_FILE)
-                                        if success:
-                                            st.success(f"Assigned room {assign_room_number} and sequential seats to {len(assigned_unique_students_in_batch)} students. Sitting plan saved successfully!")
-                                            sitting_plan, timetable = load_data() # Reload data
-                                            # Refresh unassigned list in session state
-                                            st.session_state['unassigned_students_for_session_details'] = get_unassigned_students_for_session(
-                                                assign_sp_date.strftime('%d-%m-%Y'), assign_sp_shift, sitting_plan, timetable
-                                            )
-                                            st.rerun()
-                                        else:
-                                            st.error(msg)
-                                    else:
-                                        st.warning("No students were assigned from the selected range. They might already have a room assigned for this session or are not in the unassigned list for the selected paper.")
-                            except ValueError:
-                                st.error("One or both of the entered roll numbers are not in the list of unassigned students for this session.")
+                        st.warning("Could not generate room chart. Please ensure data is complete and assignments are made.")
 
 
         elif admin_option == "Data Processing & Reports":
@@ -2466,7 +2480,7 @@ elif menu == "Admin Panel":
                     if success:
                         st.success(message)
                         # Reload data after processing
-                        sitting_plan, timetable = load_data()
+                        sitting_plan, timetable, assigned_seats_df = load_data()
                     else:
                         st.error(message)
 
@@ -2529,9 +2543,9 @@ elif menu == "Centre Superintendent Panel":
         st.success("Login successful!")
 
         # Load data for CS panel
-        sitting_plan, timetable = load_data()
+        sitting_plan, timetable, assigned_seats_df = load_data() # Load assigned_seats_df here
         
-        cs_panel_option = st.radio("Select CS Task:", ["Report Exam Session", "Manage Exam Team & Shift Assignments", "View Full Timetable"])
+        cs_panel_option = st.radio("Select CS Task:", ["Report Exam Session", "Manage Exam Team & Shift Assignments", "View Full Timetable", "Room Chart Report"]) # Added Room Chart Report
 
         if cs_panel_option == "Manage Exam Team & Shift Assignments":
             st.subheader("👥 Manage Exam Team Members")
@@ -2946,6 +2960,43 @@ elif menu == "Centre Superintendent Panel":
                 st.warning("Timetable data is missing. Please upload it via the Admin Panel.")
             else:
                 st.dataframe(timetable)
+
+        elif cs_panel_option == "Room Chart Report": # New Room Chart Report section for CS
+            st.subheader("📄 Room Chart Report")
+            st.info("Generate a detailed room chart showing student seating arrangements for a specific exam session.")
+
+            if sitting_plan.empty or timetable.empty or assigned_seats_df.empty:
+                st.warning("Please upload 'sitting_plan.csv', 'timetable.csv', and ensure seats are assigned via 'Assign Rooms & Seats to Students' (Admin Panel) to generate this report.")
+                st.stop() # Use st.stop() to halt execution if critical data is missing
+            
+            # Date and Shift filters for the room chart
+            chart_date_options = sorted(timetable["Date"].dropna().unique())
+            chart_shift_options = sorted(timetable["Shift"].dropna().unique())
+
+            if not chart_date_options or not chart_shift_options:
+                st.info("No exam dates or shifts found in the timetable to generate a room chart.")
+                st.stop() # Use st.stop() to halt execution if no options
+
+            selected_chart_date = st.selectbox("Select Date", chart_date_options, key="cs_room_chart_date")
+            selected_chart_shift = st.selectbox("Select Shift", chart_shift_options, key="cs_room_chart_shift")
+
+            if st.button("Generate Room Chart"):
+                with st.spinner("Generating room chart..."):
+                    room_chart_text = generate_room_chart_report(selected_chart_date, selected_chart_shift, sitting_plan, assigned_seats_df, timetable)
+                    
+                    if room_chart_text:
+                        st.text_area("Generated Room Chart", room_chart_text, height=600)
+                        
+                        # Download button
+                        file_name = f"room_chart_{selected_chart_date}_{selected_chart_shift}.csv"
+                        st.download_button(
+                            label="Download Room Chart as CSV",
+                            data=room_chart_text.encode('utf-8'),
+                            file_name=file_name,
+                            mime="text/csv",
+                        )
+                    else:
+                        st.warning("Could not generate room chart. Please ensure data is complete and assignments are made.")
 
     else:
         st.warning("Enter valid Centre Superintendent credentials.")
