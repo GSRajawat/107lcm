@@ -1274,10 +1274,21 @@ def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_
 def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_df, timetable_df):
     output_string_parts = []
 
+    # --- Robust Checks for essential columns ---
+    required_timetable_cols = ["Date", "Shift", "Time", "Class", "Paper Code", "Paper Name"]
+    for col in required_timetable_cols:
+        if col not in timetable_df.columns:
+            return f"Error: Missing essential column '{col}' in timetable.csv. Please ensure the file is correctly formatted."
+
+    required_assigned_seats_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"]
+    for col in required_assigned_seats_cols:
+        if col not in assigned_seats_df.columns:
+            return f"Error: Missing essential column '{col}' in assigned_seats.csv. Please ensure seats are assigned and the file is correctly formatted."
+
     # 1. Get header information from timetable
     relevant_tt_exams = timetable_df[
         (timetable_df["Date"].astype(str).str.strip() == date_str) &
-        (timetable_df["Shift"].astype(str).str.strip().lower() == shift.lower())
+        (timetable_df["Shift"].astype(str).str.strip().str.lower() == shift.lower())
     ]
 
     if relevant_tt_exams.empty:
@@ -1326,8 +1337,15 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
     # Use Paper Name from timetable if available, otherwise from assigned_seats_df
     assigned_students_for_session['Paper Name'] = assigned_students_for_session['Paper Name_tt'].fillna(assigned_students_for_session['Paper Name'])
     
-    # Corrected: Access 'Class' directly, as it would not have been suffixed if not present in assigned_seats_df
-    assigned_students_for_session['Class'] = assigned_students_for_session['Class'].fillna('') 
+    # Corrected line: Access 'Class' directly, as it would not have been suffixed if not present in assigned_seats_df
+    # The 'Class' column from timetable_df is merged directly if assigned_seats_df doesn't have one,
+    # otherwise it would be 'Class_tt'. We need to check which one exists.
+    if 'Class_tt' in assigned_students_for_session.columns:
+        assigned_students_for_session['Class'] = assigned_students_for_session['Class_tt'].fillna('')
+    elif 'Class' in assigned_students_for_session.columns: # Fallback if 'Class' was already in assigned_seats_df
+        assigned_students_for_session['Class'] = assigned_students_for_session['Class'].fillna('')
+    else:
+        assigned_students_for_session['Class'] = '' # Default if neither exists, though this should be caught by earlier checks
 
     # Sort by Room Number, then by Seat Number
     def sort_seat_number_key(seat):
@@ -2450,16 +2468,20 @@ elif menu == "Admin Panel":
 
             if st.button("Generate Room Chart"):
                 with st.spinner("Generating room chart..."):
-                    room_chart_text = generate_room_chart_report(selected_chart_date, selected_chart_shift, sitting_plan, assigned_seats_df, timetable)
+                    # The generate_room_chart_report function now returns a string message if there's an error
+                    room_chart_output = generate_room_chart_report(selected_chart_date, selected_chart_shift, sitting_plan, assigned_seats_df, timetable)
                     
-                    if room_chart_text:
-                        st.text_area("Generated Room Chart", room_chart_text, height=600)
+                    # Check if the output is an error message (string) or the actual chart data
+                    if room_chart_output and "Error:" in room_chart_output:
+                        st.error(room_chart_output) # Display the error message
+                    elif room_chart_output:
+                        st.text_area("Generated Room Chart", room_chart_output, height=600)
                         
                         # Download button
                         file_name = f"room_chart_{selected_chart_date}_{selected_chart_shift}.csv"
                         st.download_button(
                             label="Download Room Chart as CSV",
-                            data=room_chart_text.encode('utf-8'),
+                            data=room_chart_output.encode('utf-8'),
                             file_name=file_name,
                             mime="text/csv",
                         )
@@ -2982,16 +3004,20 @@ elif menu == "Centre Superintendent Panel":
 
             if st.button("Generate Room Chart"):
                 with st.spinner("Generating room chart..."):
-                    room_chart_text = generate_room_chart_report(selected_chart_date, selected_chart_shift, sitting_plan, assigned_seats_df, timetable)
+                    # The generate_room_chart_report function now returns a string message if there's an error
+                    room_chart_output = generate_room_chart_report(selected_chart_date, selected_chart_shift, sitting_plan, assigned_seats_df, timetable)
                     
-                    if room_chart_text:
-                        st.text_area("Generated Room Chart", room_chart_text, height=600)
+                    # Check if the output is an error message (string) or the actual chart data
+                    if room_chart_output and "Error:" in room_chart_output:
+                        st.error(room_chart_output) # Display the error message
+                    elif room_chart_output:
+                        st.text_area("Generated Room Chart", room_chart_output, height=600)
                         
                         # Download button
                         file_name = f"room_chart_{selected_chart_date}_{selected_chart_shift}.csv"
                         st.download_button(
                             label="Download Room Chart as CSV",
-                            data=room_chart_text.encode('utf-8'),
+                            data=room_chart_output.encode('utf-8'),
                             file_name=file_name,
                             mime="text/csv",
                         )
