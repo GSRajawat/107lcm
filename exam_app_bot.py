@@ -24,6 +24,71 @@ ASSIGNED_SEATS_FILE = "assigned_seats.csv" # New file for assigned seats
 ATTESTATION_DATA_FILE = "attestation_data_combined.csv" # For rasa_pdf output
 COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv" # For college_statistic output
 
+def load_shift_assignments():
+    if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
+        try:
+            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE)
+            # Convert string representations of lists back to actual lists for roles
+            for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", 
+                         "permanent_invigilator", "assistant_permanent_invigilator", 
+                         "class_3_worker", "class_4_worker"]: # Added new roles
+                if role in df.columns:
+                    # Ensure that empty strings or NaN values are handled gracefully
+                    df[role] = df[role].apply(lambda x: ast.literal_eval(x) if pd.notna(x) and x.strip() else [])
+            return df
+        except Exception as e:
+            st.error(f"Error loading shift assignments: {e}. Reinitializing shift assignments file.")
+            # If an error occurs during loading, reinitialize the DataFrame with correct columns
+            return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
+                                         'assistant_center_superintendent', 'permanent_invigilator', 
+                                         'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']) # Added new columns here
+    # If file does not exist, create a new DataFrame with all columns
+    return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
+                                 'assistant_center_superintendent', 'permanent_invigilator', 
+                                 'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']) # Added new columns here
+
+def save_shift_assignment(date, shift, assignments):
+    assignments_df = load_shift_assignments()
+    
+    # Create a unique key for the assignment
+    assignment_key = f"{date}_{shift}"
+
+    # Prepare data for DataFrame, converting lists to string representations
+    data_for_df = {
+        'date': date,
+        'shift': shift,
+        'senior_center_superintendent': str(assignments.get('senior_center_superintendent', [])),
+        'center_superintendent': str(assignments.get('center_superintendent', [])), 
+        'assistant_center_superintendent': str(assignments.get('assistant_center_superintendent', [])),
+        'permanent_invigilator': str(assignments.get('permanent_invigilator', [])),
+        'assistant_permanent_invigilator': str(assignments.get('assistant_permanent_invigilator', [])),
+        'class_3_worker': str(assignments.get('class_3_worker', [])), # Added new role
+        'class_4_worker': str(assignments.get('class_4_worker', []))  # Added new role
+    }
+    new_row_df = pd.DataFrame([data_for_df])
+
+    # Check if assignment_key already exists
+    if assignment_key in (assignments_df['date'] + '_' + assignments_df['shift']).values:
+        # Update existing record
+        idx_to_update = assignments_df[(assignments_df['date'] == date) & (assignments_df['shift'] == shift)].index[0]
+        for col, val in data_for_df.items():
+            assignments_df.loc[idx_to_update, col] = val
+    else:
+        # Add new record
+        assignments_df = pd.concat([assignments_df, new_row_df], ignore_index=True)
+    
+    try:
+        assignments_df.to_csv(SHIFT_ASSIGNMENTS_FILE, index=False)
+        return True, "Shift assignments saved successfully!"
+    except Exception as e:
+        return False, f"Error saving shift assignments: {e}"
+
+
+
+# --- Rest of your exam_app_bot.py code follows below ---
+# For example, your Streamlit app layout, other functions, and calls to load_shift_assignments()
+# should come after the definitions of load_shift_assignments and save_shift_assignment.
+
 # --- Firebase related code removed as per user request ---
 # Initialize session state for Centre Superintendent reports if not already present
 if 'cs_reports' not in st.session_state:
@@ -180,55 +245,160 @@ def save_exam_team_members(members):
     except Exception as e:
         return False, f"Error saving exam team members: {e}"
 
-# --- Shift Assignments Functions ---
-def load_shift_assignments():
-    if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
-        try:
-            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE)
-            # Convert string representations of lists back to actual lists for roles
-            for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", "permanent_invigilator", "assistant_permanent_invigilator"]:
-                if role in df.columns:
-                    df[role] = df[role].apply(lambda x: ast.literal_eval(x) if pd.notna(x) and x.strip() else [])
-            return df
-        except Exception as e:
-            st.error(f"Error loading shift assignments: {e}")
-            return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 'assistant_center_superintendent', 'permanent_invigilator', 'assistant_permanent_invigilator'])
-    return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 'assistant_center_superintendent', 'permanent_invigilator', 'assistant_permanent_invigilator'])
+def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, timetable):
+    all_students_data = []
 
-def save_shift_assignment(date, shift, assignments):
-    assignments_df = load_shift_assignments()
-    
-    # Create a unique key for the assignment
-    assignment_key = f"{date}_{shift}"
+    # Filter timetable for the given date and shift
+    current_day_exams_tt = timetable[
+        (timetable["Date"].astype(str).str.strip() == date_str) &
+        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+    ]
 
-    # Prepare data for DataFrame, converting lists to string representations
-    data_for_df = {
-        'date': date,
-        'shift': shift,
-        'senior_center_superintendent': str(assignments.get('senior_center_superintendent', [])),
-        'center_superintendent': str(assignments.get('center_center_superintendent', [])),
-        'assistant_center_superintendent': str(assignments.get('assistant_center_superintendent', [])),
-        'permanent_invigilator': str(assignments.get('permanent_invigilator', [])),
-        'assistant_permanent_invigilator': str(assignments.get('assistant_permanent_invigilator', []))
-    }
-    new_row_df = pd.DataFrame([data_for_df])
+    if current_day_exams_tt.empty:
+        return None, "No exams found for the selected date and shift.", None
 
-    # Check if assignment_key already exists
-    if assignment_key in (assignments_df['date'] + '_' + assignments_df['shift']).values:
-        # Update existing record
-        idx_to_update = assignments_df[(assignments_df['date'] == date) & (assignments_df['shift'] == shift)].index[0]
-        for col, val in data_for_df.items():
-            assignments_df.loc[idx_to_update, col] = val
+    # Extract time from the timetable. Assuming all exams in a given shift have the same time.
+    exam_time = current_day_exams_tt.iloc[0]["Time"].strip() if "Time" in current_day_exams_tt.columns else "TBD"
+
+    # Determine the class summary for the header
+    unique_classes = current_day_exams_tt['Class'].dropna().astype(str).str.strip().unique()
+    class_summary_header = ""
+    if len(unique_classes) == 1:
+        class_summary_header = f"{unique_classes[0]} Examination {datetime.datetime.now().year}"
+    elif len(unique_classes) > 1:
+        class_summary_header = f"Various Classes Examination {datetime.datetime.now().year}"
     else:
-        # Add new record
-        assignments_df = pd.concat([assignments_df, new_row_df], ignore_index=True)
-    
-    try:
-        assignments_df.to_csv(SHIFT_ASSIGNMENTS_FILE, index=False)
-        return True, "Shift assignments saved successfully!"
-    except Exception as e:
-        return False, f"Error saving shift assignments: {e}"
+        class_summary_header = f"Examination {datetime.datetime.now().year}"
 
+    # Iterate through each exam scheduled for the date/shift
+    for _, tt_row in current_day_exams_tt.iterrows():
+        tt_class = str(tt_row["Class"]).strip()
+        tt_paper = str(tt_row["Paper"]).strip()
+        tt_paper_code = str(tt_row["Paper Code"]).strip()
+        tt_paper_name = str(tt_row["Paper Name"]).strip()
+
+        # Find students in sitting plan for this specific exam
+        matching_students_sp = sitting_plan[
+            (sitting_plan["Class"].astype(str).str.strip().str.lower() == tt_class.lower()) &
+            (sitting_plan["Paper"].astype(str).str.strip() == tt_paper) &
+            (sitting_plan["Paper Code"].astype(str).str.strip() == tt_paper_code) &
+            (sitting_plan["Paper Name"].astype(str).str.strip() == tt_paper_name)
+        ]
+
+        for _, sp_row in matching_students_sp.iterrows():
+            room_num = str(sp_row["Room Number"]).strip()
+
+            for i in range(1, 11): # Iterate through Roll Number 1 to 10
+                roll_col = f"Roll Number {i}"
+                s_col = f"Seat Number {i}" # Define s_col here
+
+                roll_num = str(sp_row.get(roll_col, '')).strip()
+                seat_num_display = ""
+                seat_num_sort_key = None # For sorting
+
+                if roll_num and roll_num != 'nan':
+                    if s_col in sp_row.index: # Check if column exists
+                        seat_num_raw = str(sp_row[s_col]).strip()
+                        try:
+                            seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
+                            seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
+                        except ValueError:
+                            seat_num_sort_key = float('inf') # Assign a large number to sort at the end
+                            seat_num_display = seat_num_raw if seat_num_raw else "N/A" # Display raw or N/A
+                    else:
+                        seat_num_sort_key = float('inf')
+                        seat_num_display = "N/A" # Column itself is missing
+
+                    all_students_data.append({
+                        "roll_num": roll_num,
+                        "room_num": room_num,
+                        "seat_num_display": seat_num_display, # This is what will be displayed/exported
+                        "seat_num_sort_key": seat_num_sort_key, # This is for sorting
+                        "paper_name": tt_paper_name,
+                        "paper_code": tt_paper_code,
+                        "class_name": tt_class,
+                        "date": date_str,
+                        "shift": shift
+                    })
+
+    if not all_students_data:
+        return None, "No students found for the selected date and shift.", None
+
+    # Sort the collected data by Room Number, then Seat Number
+    all_students_data.sort(key=lambda x: (x['room_num'], x['seat_num_sort_key']))
+
+    # --- Prepare text output ---
+    output_string_parts = []
+    output_string_parts.append("जीवाजी विश्वविद्यालय ग्वालियर")
+    output_string_parts.append("परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107")
+    output_string_parts.append(class_summary_header)
+    output_string_parts.append(f"दिनांक :-{date_str}")
+    output_string_parts.append(f"पाली :-{shift}")
+    output_string_parts.append(f"समय :-{exam_time}")
+
+    students_by_room = {}
+    for student in all_students_data:
+        room = student['room_num']
+        if room not in students_by_room:
+            students_by_room[room] = []
+        students_by_room[room].append(student)
+
+    for room_num in sorted(students_by_room.keys()):
+        output_string_parts.append(f" कक्ष :-{room_num}") # Added space for consistency
+        current_room_students = students_by_room[room_num]
+
+        num_cols = 10
+
+        for i in range(0, len(current_room_students), num_cols):
+            block_students = current_room_students[i : i + num_cols]
+
+            # Create a single line for 10 students
+            single_line_students = []
+            for student in block_students:
+                # Modified formatting here: removed space after '(' and added '-' before paper_name
+                single_line_students.append(
+                    f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
+                )
+
+            output_string_parts.append("".join(single_line_students)) # Join directly without spaces
+
+    final_text_output = "\n".join(output_string_parts)
+
+    # --- Prepare Excel output data ---
+    excel_output_data = []
+
+    # Excel Header
+    excel_output_data.append(["जीवाजी विश्वविद्यालय ग्वालियर"])
+    excel_output_data.append(["परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107"])
+    excel_output_data.append([class_summary_header])
+    excel_output_data.append([]) # Blank line
+    excel_output_data.append(["दिनांक :-", date_str])
+    excel_output_data.append(["पाली :-", shift])
+    excel_output_data.append(["समय :-", exam_time])
+    excel_output_data.append([]) # Blank line
+
+    # Excel Student Data Section (now each block of 10 students is one row, each student is one cell)
+    for room_num in sorted(students_by_room.keys()):
+        excel_output_data.append([f" कक्ष :-{room_num}"]) # Added space for consistency
+        current_room_students = students_by_room[room_num]
+
+        num_cols = 10
+
+        for i in range(0, len(current_room_students), num_cols):
+            block_students = current_room_students[i : i + num_cols]
+
+            excel_row_for_students = [""] * num_cols # Prepare 10 cells for this row
+
+            for k, student in enumerate(block_students):
+                # Each cell contains the full student string, modified formatting
+                excel_row_for_students[k] = (
+                    f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
+                )
+
+            excel_output_data.append(excel_row_for_students)
+            excel_output_data.append([""] * num_cols) # Blank row for spacing
+
+    return final_text_output, None, excel_output_data	
 # --- Room Invigilator Assignment Functions (NEW) ---
 def load_room_invigilator_assignments():
     if os.path.exists(ROOM_INVIGILATORS_FILE):
@@ -424,7 +594,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
 
         for _, sp_row in matching_students_sp.iterrows():
             room_num = str(sp_row["Room Number"]).strip()
-            
+
             for i in range(1, 11): # Iterate through Roll Number 1 to 10
                 roll_col = f"Roll Number {i}"
                 s_col = f"Seat Number {i}" # Define s_col here
@@ -457,7 +627,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
                         "date": date_str,
                         "shift": shift
                     })
-    
+
     if not all_students_data:
         return None, "No students found for the selected date and shift.", None
 
@@ -472,7 +642,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
     output_string_parts.append(f"दिनांक :-{date_str}")
     output_string_parts.append(f"पाली :-{shift}")
     output_string_parts.append(f"समय :-{exam_time}")
-    
+
     students_by_room = {}
     for student in all_students_data:
         room = student['room_num']
@@ -483,19 +653,20 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
     for room_num in sorted(students_by_room.keys()):
         output_string_parts.append(f" कक्ष :-{room_num}") # Added space for consistency
         current_room_students = students_by_room[room_num]
-        
-        num_cols = 10 
-        
+
+        num_cols = 10
+
         for i in range(0, len(current_room_students), num_cols):
             block_students = current_room_students[i : i + num_cols]
-            
+
             # Create a single line for 10 students
             single_line_students = []
             for student in block_students:
+                # Modified formatting here: removed space after '(' and added '-' before paper_name
                 single_line_students.append(
-                    f"{student['roll_num']}( कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
+                    f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
                 )
-            
+
             output_string_parts.append("".join(single_line_students)) # Join directly without spaces
 
     final_text_output = "\n".join(output_string_parts)
@@ -519,18 +690,18 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
         current_room_students = students_by_room[room_num]
 
         num_cols = 10
-        
+
         for i in range(0, len(current_room_students), num_cols):
             block_students = current_room_students[i : i + num_cols]
-            
+
             excel_row_for_students = [""] * num_cols # Prepare 10 cells for this row
 
             for k, student in enumerate(block_students):
-                # Each cell contains the full student string
+                # Each cell contains the full student string, modified formatting
                 excel_row_for_students[k] = (
-                    f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
+                    f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
                 )
-            
+
             excel_output_data.append(excel_row_for_students)
             excel_output_data.append([""] * num_cols) # Blank row for spacing
 
@@ -1768,7 +1939,7 @@ def display_report_panel():
 
 
 # Main app
-st.title("Government Law College, Morena (M.P.) Examination Center Module")
+st.title("Government Law College, Morena (M.P.) Examination Management System")
 
 menu = st.radio("Select Module", ["Student View", "Admin Panel", "Centre Superintendent Panel"])
 
@@ -2628,6 +2799,10 @@ elif menu == "Centre Superintendent Panel":
                 loaded_assist_cs = []
                 loaded_perm_inv = []
                 loaded_assist_perm_inv = []
+                loaded_class_3 = []
+                loaded_class_4 = []
+
+
 
                 if not current_assignment_for_shift.empty:
                     loaded_senior_cs = current_assignment_for_shift.iloc[0].get('senior_center_superintendent', [])
@@ -2635,17 +2810,24 @@ elif menu == "Centre Superintendent Panel":
                     loaded_assist_cs = current_assignment_for_shift.iloc[0].get('assistant_center_superintendent', [])
                     loaded_perm_inv = current_assignment_for_shift.iloc[0].get('permanent_invigilator', [])
                     loaded_assist_perm_inv = current_assignment_for_shift.iloc[0].get('assistant_permanent_invigilator', [])
+                    loaded_class_3 = current_assignment_for_shift.iloc[0].get('class_3_worker', [])
+                    loaded_class_4 = current_assignment_for_shift.iloc[0].get('class_4_worker', [])
+
+
 
                 selected_senior_cs = st.multiselect("Senior Center Superintendent (Max 1)", all_team_members, default=loaded_senior_cs, max_selections=1)
                 selected_cs = st.multiselect("Center Superintendent (Max 1)", all_team_members, default=loaded_cs, max_selections=1)
                 selected_assist_cs = st.multiselect("Assistant Center Superintendent (Max 3)", all_team_members, default=loaded_assist_cs, max_selections=3)
                 selected_perm_inv = st.multiselect("Permanent Invigilator (Max 1)", all_team_members, default=loaded_perm_inv, max_selections=1)
                 selected_assist_perm_inv = st.multiselect("Assistant Permanent Invigilator (Max 5)", all_team_members, default=loaded_assist_perm_inv, max_selections=5)
+                selected_class_3 = st.multiselect("class_3_worker (Max 10)", all_team_members, default=loaded_class_3, max_selections=10)
+                selected_class_4 = st.multiselect("class_4_worker (Max 10)", all_team_members, default=loaded_class_4, max_selections=10)
+
 
                 if st.button("Save Shift Assignments"):
                     all_selected_members = (
                         selected_senior_cs + selected_cs + selected_assist_cs +
-                        selected_perm_inv + selected_assist_perm_inv
+                        selected_perm_inv + selected_assist_perm_inv + selected_class_3 + selected_class_4
                     )
                     if len(all_selected_members) != len(set(all_selected_members)):
                         st.error("Error: A team member cannot be assigned to multiple roles for the same shift.")
@@ -2655,7 +2837,9 @@ elif menu == "Centre Superintendent Panel":
                             'center_superintendent': selected_cs,
                             'assistant_center_superintendent': selected_assist_cs,
                             'permanent_invigilator': selected_perm_inv,
-                            'assistant_permanent_invigilator': selected_assist_perm_inv
+                            'assistant_permanent_invigilator': selected_assist_perm_inv,
+                            'class_3_worker': selected_class_3,
+                            'class_4_worker': selected_class_4
                         }
                         success, msg = save_shift_assignment(assignment_date.strftime('%d-%m-%Y'), assignment_shift, assignments_to_save)
                         if success:
@@ -2673,42 +2857,21 @@ elif menu == "Centre Superintendent Panel":
                     st.info("No shift assignments saved yet.")
 
             st.markdown("---")
+
             st.subheader("Assign Invigilators to Rooms")
-            if sitting_plan.empty or timetable.empty:
-                st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' via the Admin Panel to assign invigilators to rooms.")
+            if assigned_seats_df.empty: # Check assigned_seats_df instead of sitting_plan/timetable for rooms
+                st.info("Please assign seats to students via the Admin Panel's 'Assign Rooms & Seats to Students' section first to see available rooms for invigilator assignment.")
             else:
                 room_inv_date = st.date_input("Select Date for Room Invigilators", value=datetime.date.today(), key="room_inv_date")
                 room_inv_shift = st.selectbox("Select Shift for Room Invigilators", ["Morning", "Evening"], key="room_inv_shift")
                 
-                # Get unique rooms for the selected date and shift from the sitting plan
-                # Filter sitting plan for rooms that have exams on this date/shift
-                relevant_rooms_tt = timetable[
-                    (timetable["Date"].astype(str).str.strip() == room_inv_date.strftime('%d-%m-%Y')) &
-                    (timetable["Shift"].astype(str).str.strip().str.lower() == room_inv_shift.lower())
+                # MODIFIED: Get unique rooms for the selected date and shift from assigned_seats_df
+                relevant_rooms_assigned = assigned_seats_df[
+                    (assigned_seats_df["Date"].astype(str).str.strip() == room_inv_date.strftime('%d-%m-%Y')) &
+                    (assigned_seats_df["Shift"].astype(str).str.strip().str.lower() == room_inv_shift.lower())
                 ]
                 
-                relevant_room_numbers = []
-                if not relevant_rooms_tt.empty:
-                    # Get all unique classes and papers from the filtered timetable
-                    unique_tt_exams = relevant_rooms_tt[['Class', 'Paper', 'Paper Code', 'Paper Name']].drop_duplicates()
-                    
-                    # Now find which rooms in the sitting plan host these exams
-                    for _, tt_exam_row in unique_tt_exams.iterrows():
-                        tt_class = str(tt_exam_row['Class']).strip()
-                        tt_paper = str(tt_exam_row['Paper']).strip()
-                        tt_paper_code = str(tt_exam_row['Paper Code']).strip()
-                        tt_paper_name = str(tt_exam_row['Paper Name']).strip()
-
-                        matching_rooms_sp = sitting_plan[
-                            (sitting_plan["Class"].astype(str).str.strip().str.lower() == tt_class.lower()) &
-                            (sitting_plan["Paper"].astype(str).str.strip() == tt_paper) &
-                            (sitting_plan["Paper Code"].astype(str).str.strip() == tt_paper_code) &
-                            (sitting_plan["Paper Name"].astype(str).str.strip() == tt_paper_name)
-                        ]
-                        if not matching_rooms_sp.empty:
-                            relevant_room_numbers.extend(matching_rooms_sp['Room Number'].dropna().astype(str).str.strip().tolist())
-                
-                unique_relevant_rooms = sorted(list(set(relevant_room_numbers)))
+                unique_relevant_rooms = sorted(list(relevant_rooms_assigned['Room Number'].dropna().astype(str).str.strip().unique()))
 
                 selected_room_for_inv = st.selectbox("Select Room to Assign Invigilators", [""] + unique_relevant_rooms, key="selected_room_for_inv")
 
