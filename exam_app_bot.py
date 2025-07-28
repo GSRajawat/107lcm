@@ -24,6 +24,16 @@ ASSIGNED_SEATS_FILE = "assigned_seats.csv" # New file for assigned seats
 ATTESTATION_DATA_FILE = "attestation_data_combined.csv" # For rasa_pdf output
 COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv" # For college_statistic output
 
+# Helper function to ensure consistent string formatting for paper codes (remove .0 if numeric)
+def _format_paper_code(code_str):
+    if pd.isna(code_str) or not code_str:
+        return ""
+    s = str(code_str).strip()
+    # If it looks like a float (e.g., "12345.0"), convert to int string
+    if s.endswith('.0') and s[:-2].isdigit():
+        return s[:-2]
+    return s
+
 def load_shift_assignments():
     if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
         try:
@@ -84,16 +94,6 @@ def save_shift_assignment(date, shift, assignments):
         return False, f"Error saving shift assignments: {e}"
 
 
-
-# --- Rest of your exam_app_bot.py code follows below ---
-# For example, your Streamlit app layout, other functions, and calls to load_shift_assignments()
-# should come after the definitions of load_shift_assignments and save_shift_assignment.
-
-# --- Firebase related code removed as per user request ---
-# Initialize session state for Centre Superintendent reports if not already present
-if 'cs_reports' not in st.session_state:
-    st.session_state.cs_reports = {}
-
 # Load data from CSV files (sitting_plan.csv, timetable.csv, assigned_seats.csv)
 def load_data():
     # Check if files exist before attempting to read them
@@ -107,14 +107,21 @@ def load_data():
                 f"Roll Number {i}": str for i in range(1, 11)
             })
             sitting_plan_df.columns = sitting_plan_df.columns.str.strip()
+            # Ensure Paper Code column is consistently formatted in sitting_plan_df
+            if 'Paper Code' in sitting_plan_df.columns:
+                sitting_plan_df['Paper Code'] = sitting_plan_df['Paper Code'].apply(_format_paper_code)
         except Exception as e:
             st.error(f"Error loading {SITTING_PLAN_FILE}: {e}")
             sitting_plan_df = pd.DataFrame()
+
 
     if os.path.exists(TIMETABLE_FILE):
         try:
             timetable_df = pd.read_csv(TIMETABLE_FILE)
             timetable_df.columns = timetable_df.columns.str.strip()
+            # Ensure Paper Code column is consistently formatted in timetable_df
+            if 'Paper Code' in timetable_df.columns:
+                timetable_df['Paper Code'] = timetable_df['Paper Code'].apply(_format_paper_code)
         except Exception as e:
             st.error(f"Error loading {TIMETABLE_FILE}: {e}")
             timetable_df = pd.DataFrame()
@@ -122,14 +129,15 @@ def load_data():
     if os.path.exists(ASSIGNED_SEATS_FILE):
         try:
             # Ensure Room Number and Roll Number are read as string to prevent type mismatch issues
-            assigned_seats_df = pd.read_csv(ASSIGNED_SEATS_FILE, dtype={"Roll Number": str, "Room Number": str})
+            # Also ensure Paper Code is read as string and formatted
+            assigned_seats_df = pd.read_csv(ASSIGNED_SEATS_FILE, dtype={"Roll Number": str, "Room Number": str, "Paper Code": str, "Date": str, "Shift": str})
+            if 'Paper Code' in assigned_seats_df.columns:
+                assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].apply(_format_paper_code)
         except Exception as e:
             st.error(f"Error loading {ASSIGNED_SEATS_FILE}: {e}")
             assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
     else:
         assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
-        # st.info(f"Note: `{ASSIGNED_SEATS_FILE}` not found. A new empty file will be created upon first assignment.") # Removed for cleaner UI
-
             
     return sitting_plan_df, timetable_df, assigned_seats_df
 
@@ -245,22 +253,91 @@ def save_exam_team_members(members):
     except Exception as e:
         return False, f"Error saving exam team members: {e}"
 
-def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, timetable):
+# Refactored helper function to get raw student data for a session
+def _get_session_students_raw_data(date_str, shift, assigned_seats_df, timetable_df):
+    """
+    Collects raw student data for a given date and shift from assigned_seats_df
+    and merges with timetable info.
+    Returns a list of dictionaries, each representing an assigned student.
+    """
     all_students_data = []
 
     # Filter timetable for the given date and shift
+    current_day_exams_tt = timetable_df[
+        (timetable_df["Date"].astype(str).str.strip() == date_str) &
+        (timetable_df["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+    ].copy()
+
+    if current_day_exams_tt.empty:
+        return all_students_data # Return empty list if no exams found
+
+    # Iterate through each exam scheduled for the date/shift in the timetable
+    for _, tt_row in current_day_exams_tt.iterrows():
+        tt_class = str(tt_row["Class"]).strip()
+        tt_paper_code = str(tt_row["Paper Code"]).strip()
+        tt_paper_name = str(tt_row["Paper Name"]).strip()
+
+        # Filter assigned_seats_df for students assigned to this specific exam session
+        current_exam_assigned_students = assigned_seats_df[
+            (assigned_seats_df["Date"].astype(str).str.strip() == date_str) &
+            (assigned_seats_df["Shift"].astype(str).str.strip().str.lower() == shift.lower()) &
+            (assigned_seats_df["Paper Code"].astype(str).str.strip() == tt_paper_code) & # Use formatted paper code
+            (assigned_seats_df["Paper Name"].astype(str).str.strip() == tt_paper_name)
+        ]
+
+        for _, assigned_row in current_exam_assigned_students.iterrows():
+            roll_num = str(assigned_row["Roll Number"]).strip()
+            room_num = str(assigned_row["Room Number"]).strip()
+            seat_num_raw = str(assigned_row["Seat Number"]).strip()
+
+            seat_num_display = ""
+            seat_num_sort_key = None
+            try:
+                # Handle alphanumeric seats for sorting (e.g., 1A, 2A, 1B, 2B)
+                if re.match(r'^\d+[A-Z]$', seat_num_raw):
+                    num_part = int(re.match(r'^(\d+)', seat_num_raw).group(1))
+                    char_part = re.search(r'([A-Z])$', seat_num_raw).group(1)
+                    # Assign a tuple for sorting: (char_order, number)
+                    seat_num_sort_key = (ord(char_part), num_part)
+                    seat_num_display = seat_num_raw
+                elif seat_num_raw.isdigit():
+                    seat_num_sort_key = (float('inf'), int(seat_num_raw)) # Numeric seats after alphanumeric
+                    seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
+                else:
+                    seat_num_sort_key = (float('inf'), float('inf')) # Fallback for other formats
+                    seat_num_display = seat_num_raw if seat_num_raw else "N/A"
+            except ValueError:
+                seat_num_sort_key = (float('inf'), float('inf')) # Fallback for other formats
+                seat_num_display = seat_num_raw if seat_num_raw else "N/A"
+
+            all_students_data.append({
+                "roll_num": roll_num,
+                "room_num": room_num,
+                "seat_num_display": seat_num_display, # This is what will be displayed/exported
+                "seat_num_sort_key": seat_num_sort_key, # This is for sorting
+                "paper_name": tt_paper_name,
+                "paper_code": tt_paper_code,
+                "class_name": tt_class,
+                "date": date_str,
+                "shift": shift
+            })
+    return all_students_data
+
+def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df, timetable):
+    all_students_data = _get_session_students_raw_data(date_str, shift, assigned_seats_df, timetable)
+
+    if not all_students_data:
+        return None, "No students found for the selected date and shift.", None
+
+    # Sort the collected data by Room Number, then Seat Number
+    all_students_data.sort(key=lambda x: (x['room_num'], x['seat_num_sort_key']))
+
+    # Extract exam_time and class_summary_header from timetable (similar to original logic)
     current_day_exams_tt = timetable[
         (timetable["Date"].astype(str).str.strip() == date_str) &
         (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower())
     ]
-
-    if current_day_exams_tt.empty:
-        return None, "No exams found for the selected date and shift.", None
-
-    # Extract time from the timetable. Assuming all exams in a given shift have the same time.
     exam_time = current_day_exams_tt.iloc[0]["Time"].strip() if "Time" in current_day_exams_tt.columns else "TBD"
-
-    # Determine the class summary for the header
     unique_classes = current_day_exams_tt['Class'].dropna().astype(str).str.strip().unique()
     class_summary_header = ""
     if len(unique_classes) == 1:
@@ -269,63 +346,6 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
         class_summary_header = f"Various Classes Examination {datetime.datetime.now().year}"
     else:
         class_summary_header = f"Examination {datetime.datetime.now().year}"
-
-    # Iterate through each exam scheduled for the date/shift
-    for _, tt_row in current_day_exams_tt.iterrows():
-        tt_class = str(tt_row["Class"]).strip()
-        tt_paper = str(tt_row["Paper"]).strip()
-        tt_paper_code = str(tt_row["Paper Code"]).strip()
-        tt_paper_name = str(tt_row["Paper Name"]).strip()
-
-        # Find students in sitting plan for this specific exam
-        matching_students_sp = sitting_plan[
-            (sitting_plan["Class"].astype(str).str.strip().str.lower() == tt_class.lower()) &
-            (sitting_plan["Paper"].astype(str).str.strip() == tt_paper) &
-            (sitting_plan["Paper Code"].astype(str).str.strip() == tt_paper_code) &
-            (sitting_plan["Paper Name"].astype(str).str.strip() == tt_paper_name)
-        ]
-
-        for _, sp_row in matching_students_sp.iterrows():
-            room_num = str(sp_row["Room Number"]).strip()
-
-            for i in range(1, 11): # Iterate through Roll Number 1 to 10
-                roll_col = f"Roll Number {i}"
-                s_col = f"Seat Number {i}" # Define s_col here
-
-                roll_num = str(sp_row.get(roll_col, '')).strip()
-                seat_num_display = ""
-                seat_num_sort_key = None # For sorting
-
-                if roll_num and roll_num != 'nan':
-                    if s_col in sp_row.index: # Check if column exists
-                        seat_num_raw = str(sp_row[s_col]).strip()
-                        try:
-                            seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
-                            seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
-                        except ValueError:
-                            seat_num_sort_key = float('inf') # Assign a large number to sort at the end
-                            seat_num_display = seat_num_raw if seat_num_raw else "N/A" # Display raw or N/A
-                    else:
-                        seat_num_sort_key = float('inf')
-                        seat_num_display = "N/A" # Column itself is missing
-
-                    all_students_data.append({
-                        "roll_num": roll_num,
-                        "room_num": room_num,
-                        "seat_num_display": seat_num_display, # This is what will be displayed/exported
-                        "seat_num_sort_key": seat_num_sort_key, # This is for sorting
-                        "paper_name": tt_paper_name,
-                        "paper_code": tt_paper_code,
-                        "class_name": tt_class,
-                        "date": date_str,
-                        "shift": shift
-                    })
-
-    if not all_students_data:
-        return None, "No students found for the selected date and shift.", None
-
-    # Sort the collected data by Room Number, then Seat Number
-    all_students_data.sort(key=lambda x: (x['room_num'], x['seat_num_sort_key']))
 
     # --- Prepare text output ---
     output_string_parts = []
@@ -357,7 +377,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
             for student in block_students:
                 # Modified formatting here: removed space after '(' and added '-' before paper_name
                 single_line_students.append(
-                    f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
+                    f"{student['roll_num']}( कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
                 )
 
             output_string_parts.append("".join(single_line_students)) # Join directly without spaces
@@ -392,13 +412,14 @@ def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, tim
             for k, student in enumerate(block_students):
                 # Each cell contains the full student string, modified formatting
                 excel_row_for_students[k] = (
-                    f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
+                    f"{student['roll_num']}( कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
                 )
 
             excel_output_data.append(excel_row_for_students)
             excel_output_data.append([""] * num_cols) # Blank row for spacing
 
     return final_text_output, None, excel_output_data	
+
 # --- Room Invigilator Assignment Functions (NEW) ---
 def load_room_invigilator_assignments():
     if os.path.exists(ROOM_INVIGILATORS_FILE):
@@ -430,12 +451,12 @@ def save_room_invigilator_assignment(date, shift, room_num, invigilators):
     new_row_df = pd.DataFrame([data_for_df])
 
     # Check if assignment_key already exists
-    if assignment_key in (inv_df['date'] + '_' + inv_df['shift'] + '_' + inv_df['room_num']).values:
+    if assignment_key in (inv_df['date'] + '_' + inv_df['shift'] + '_' + inv_df['room_num'].astype(str)).values:
         # Update existing record
         idx_to_update = inv_df[
             (inv_df['date'] == date) & 
             (inv_df['shift'] == shift) & 
-            (inv_df['room_num'] == room_num)
+            (inv_df['room_num'].astype(str) == str(room_num))
         ].index[0]
         for col, val in data_for_df.items():
             inv_df.loc[idx_to_update, col] = val
@@ -550,239 +571,30 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                         })
     return found_sittings
 
-# Function to get all students for a given date and shift in the requested text format (Admin Panel)
-# This function will now also return data suitable for Excel download
-def get_all_students_for_date_shift_formatted(date_str, shift, sitting_plan, timetable):
-    all_students_data = []
-
-    # Filter timetable for the given date and shift
-    current_day_exams_tt = timetable[
-        (timetable["Date"].astype(str).str.strip() == date_str) &
-        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower())
-    ]
-
-    if current_day_exams_tt.empty:
-        return None, "No exams found for the selected date and shift.", None
-
-    # Extract time from the timetable. Assuming all exams in a given shift have the same time.
-    exam_time = current_day_exams_tt.iloc[0]["Time"].strip() if "Time" in current_day_exams_tt.columns else "TBD"
-
-    # Determine the class summary for the header
-    unique_classes = current_day_exams_tt['Class'].dropna().astype(str).str.strip().unique()
-    class_summary_header = ""
-    if len(unique_classes) == 1:
-        class_summary_header = f"{unique_classes[0]} Examination {datetime.datetime.now().year}"
-    elif len(unique_classes) > 1:
-        class_summary_header = f"Various Classes Examination {datetime.datetime.now().year}"
-    else:
-        class_summary_header = f"Examination {datetime.datetime.now().year}"
-
-    # Iterate through each exam scheduled for the date/shift
-    for _, tt_row in current_day_exams_tt.iterrows():
-        tt_class = str(tt_row["Class"]).strip()
-        tt_paper = str(tt_row["Paper"]).strip()
-        tt_paper_code = str(tt_row["Paper Code"]).strip()
-        tt_paper_name = str(tt_row["Paper Name"]).strip()
-
-        # Find students in sitting plan for this specific exam
-        matching_students_sp = sitting_plan[
-            (sitting_plan["Class"].astype(str).str.strip().str.lower() == tt_class.lower()) &
-            (sitting_plan["Paper"].astype(str).str.strip() == tt_paper) &
-            (sitting_plan["Paper Code"].astype(str).str.strip() == tt_paper_code) &
-            (sitting_plan["Paper Name"].astype(str).str.strip() == tt_paper_name)
-        ]
-
-        for _, sp_row in matching_students_sp.iterrows():
-            room_num = str(sp_row["Room Number"]).strip()
-
-            for i in range(1, 11): # Iterate through Roll Number 1 to 10
-                roll_col = f"Roll Number {i}"
-                s_col = f"Seat Number {i}" # Define s_col here
-
-                roll_num = str(sp_row.get(roll_col, '')).strip()
-                seat_num_display = ""
-                seat_num_sort_key = None # For sorting
-
-                if roll_num and roll_num != 'nan':
-                    if s_col in sp_row.index: # Check if column exists
-                        seat_num_raw = str(sp_row[s_col]).strip()
-                        try:
-                            seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
-                            seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
-                        except ValueError:
-                            seat_num_sort_key = float('inf') # Assign a large number to sort at the end
-                            seat_num_display = seat_num_raw if seat_num_raw else "N/A" # Display raw or N/A
-                    else:
-                        seat_num_sort_key = float('inf')
-                        seat_num_display = "N/A" # Column itself is missing
-
-                    all_students_data.append({
-                        "roll_num": roll_num,
-                        "room_num": room_num,
-                        "seat_num_display": seat_num_display, # This is what will be displayed/exported
-                        "seat_num_sort_key": seat_num_sort_key, # This is for sorting
-                        "paper_name": tt_paper_name,
-                        "paper_code": tt_paper_code,
-                        "class_name": tt_class,
-                        "date": date_str,
-                        "shift": shift
-                    })
-
-    if not all_students_data:
-        return None, "No students found for the selected date and shift.", None
-
-    # Sort the collected data by Room Number, then Seat Number
-    all_students_data.sort(key=lambda x: (x['room_num'], x['seat_num_sort_key']))
-
-    # --- Prepare text output ---
-    output_string_parts = []
-    output_string_parts.append("जीवाजी विश्वविद्यालय ग्वालियर")
-    output_string_parts.append("परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107")
-    output_string_parts.append(class_summary_header)
-    output_string_parts.append(f"दिनांक :-{date_str}")
-    output_string_parts.append(f"पाली :-{shift}")
-    output_string_parts.append(f"समय :-{exam_time}")
-
-    students_by_room = {}
-    for student in all_students_data:
-        room = student['room_num']
-        if room not in students_by_room:
-            students_by_room[room] = []
-        students_by_room[room].append(student)
-
-    for room_num in sorted(students_by_room.keys()):
-        output_string_parts.append(f" कक्ष :-{room_num}") # Added space for consistency
-        current_room_students = students_by_room[room_num]
-
-        num_cols = 10
-
-        for i in range(0, len(current_room_students), num_cols):
-            block_students = current_room_students[i : i + num_cols]
-
-            # Create a single line for 10 students
-            single_line_students = []
-            for student in block_students:
-                # Modified formatting here: removed space after '(' and added '-' before paper_name
-                single_line_students.append(
-                    f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
-                )
-
-            output_string_parts.append("".join(single_line_students)) # Join directly without spaces
-
-    final_text_output = "\n".join(output_string_parts)
-
-    # --- Prepare Excel output data ---
-    excel_output_data = []
-
-    # Excel Header
-    excel_output_data.append(["जीवाजी विश्वविद्यालय ग्वालियर"])
-    excel_output_data.append(["परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107"])
-    excel_output_data.append([class_summary_header])
-    excel_output_data.append([]) # Blank line
-    excel_output_data.append(["दिनांक :-", date_str])
-    excel_output_data.append(["पाली :-", shift])
-    excel_output_data.append(["समय :-", exam_time])
-    excel_output_data.append([]) # Blank line
-
-    # Excel Student Data Section (now each block of 10 students is one row, each student is one cell)
-    for room_num in sorted(students_by_room.keys()):
-        excel_output_data.append([f" कक्ष :-{room_num}"]) # Added space for consistency
-        current_room_students = students_by_room[room_num]
-
-        num_cols = 10
-
-        for i in range(0, len(current_room_students), num_cols):
-            block_students = current_room_students[i : i + num_cols]
-
-            excel_row_for_students = [""] * num_cols # Prepare 10 cells for this row
-
-            for k, student in enumerate(block_students):
-                # Each cell contains the full student string, modified formatting
-                excel_row_for_students[k] = (
-                    f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
-                )
-
-            excel_output_data.append(excel_row_for_students)
-            excel_output_data.append([""] * num_cols) # Blank row for spacing
-
-    return final_text_output, None, excel_output_data
-
 # New function to get all students for a given date and shift, sorted by roll number (Admin Panel)
-def get_all_students_roll_number_wise_formatted(date_str, shift, sitting_plan, timetable):
-    all_students_data = []
-
-    current_day_exams_tt = timetable[
-        (timetable["Date"].astype(str).str.strip() == date_str) &
-        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower())
-    ]
-
-    if current_day_exams_tt.empty:
-        return None, "No exams found for the selected date and shift.", None
-
-    exam_time = current_day_exams_tt.iloc[0]["Time"].strip() if "Time" in current_day_exams_tt.columns else "TBD"
-    unique_classes = current_day_exams_tt['Class'].dropna().astype(str).str.strip().unique()
-    class_summary_header = ""
-    if len(unique_classes) == 1:
-        class_summary_header = f"{unique_classes[0]} Examination {datetime.datetime.now().year}"
-    elif len(unique_classes) > 1:
-        class_summary_header = f"Various Classes Examination {datetime.datetime.now().year}"
-    else:
-        class_summary_header = f"Examination {datetime.datetime.now().year}"
-
-    for _, tt_row in current_day_exams_tt.iterrows():
-        tt_class = str(tt_row["Class"]).strip()
-        tt_paper = str(tt_row["Paper"]).strip()
-        tt_paper_code = str(tt_row["Paper Code"]).strip()
-        tt_paper_name = str(tt_row["Paper Name"]).strip()
-
-        matching_students_sp = sitting_plan[
-            (sitting_plan["Class"].astype(str).str.strip().str.lower() == tt_class.lower()) &
-            (sitting_plan["Paper"].astype(str).str.strip() == tt_paper) &
-            (sitting_plan["Paper Code"].astype(str).str.strip() == tt_paper_code) &
-            (sitting_plan["Paper Name"].astype(str).str.strip() == tt_paper_name)
-        ]
-
-        for _, sp_row in matching_students_sp.iterrows():
-            room_num = str(sp_row["Room Number"]).strip()
-            
-            for i in range(1, 11):
-                roll_col = f"Roll Number {i}"
-                s_col = f"Seat Number {i}"
-
-                roll_num = str(sp_row.get(roll_col, '')).strip()
-                seat_num_display = ""
-                seat_num_sort_key = None
-
-                if roll_num and roll_num != 'nan':
-                    if s_col in sp_row.index:
-                        seat_num_raw = str(sp_row[s_col]).strip()
-                        try:
-                            seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
-                            seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
-                        except ValueError:
-                            seat_num_sort_key = float('inf')
-                            seat_num_display = seat_num_raw if seat_num_raw else "N/A"
-                    else:
-                        seat_num_sort_key = float('inf')
-                        seat_num_display = "N/A"
-
-                    all_students_data.append({
-                        "roll_num": roll_num,
-                        "room_num": room_num,
-                        "seat_num_display": seat_num_display,
-                        "seat_num_sort_key": seat_num_sort_key,
-                        "paper_name": tt_paper_name,
-                        "paper_code": tt_paper_code,
-                        "class_name": tt_class,
-                        "date": date_str,
-                        "shift": shift
-                    })
+def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_df, timetable):
+    all_students_data = _get_session_students_raw_data(date_str, shift, assigned_seats_df, timetable)
     
     if not all_students_data:
         return None, "No students found for the selected date and shift.", None
 
     # Sort the collected data by Roll Number (lexicographically as strings)
     all_students_data.sort(key=lambda x: x['roll_num'])
+
+    # Extract exam_time and class_summary_header from timetable (similar to original logic)
+    current_day_exams_tt = timetable[
+        (timetable["Date"].astype(str).str.strip() == date_str) &
+        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+    ]
+    exam_time = current_day_exams_tt.iloc[0]["Time"].strip() if "Time" in current_day_exams_tt.columns else "TBD"
+    unique_classes = current_day_exams_tt['Class'].dropna().astype(str).str.strip().unique()
+    class_summary_header = ""
+    if len(unique_classes) == 1:
+        class_summary_header = f"{unique_classes[0]} Examination {datetime.datetime.now().year}"
+    elif len(unique_classes) > 1:
+        class_summary_header = f"Various Classes Examination {datetime.datetime.now().year}"
+    else:
+        class_summary_header = f"Examination {datetime.datetime.now().year}"
 
     # --- Prepare text output ---
     output_string_parts = []
@@ -801,7 +613,7 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, sitting_plan, t
         single_line_students = []
         for student in block_students:
             single_line_students.append(
-                f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
+                f"{student['roll_num']}( कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
             )
         output_string_parts.append("".join(single_line_students))
 
@@ -828,7 +640,7 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, sitting_plan, t
 
         for k, student in enumerate(block_students):
             excel_row_for_students[k] = (
-                f"{student['roll_num']}(कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
+                f"{student['roll_num']}( कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
             )
         
         excel_output_data.append(excel_row_for_students)
@@ -850,7 +662,7 @@ def extract_metadata_from_pdf_text(text):
             break
     
     paper_code = re.search(r'Paper Code[:\s]*([\d]+)', text)
-    paper_code_val = paper_code.group(1) if paper_code else "UNSPECIFIED_PAPER_CODE"
+    paper_code_val = _format_paper_code(paper_code.group(1)) if paper_code else "UNSPECIFIED_PAPER_CODE" # Use formatter
 
     paper_name = re.search(r'Paper Name[:\s]*(.+?)(?:\n|$)', text)
     paper_name_val = paper_name.group(1).strip() if paper_name else "UNSPECIFIED_PAPER_NAME"
@@ -874,21 +686,22 @@ def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_
     sitting_plan_columns += ["Paper", "Paper Code", "Paper Name"]
 
     def extract_roll_numbers(text):
-        return re.findall(r'\b\d{9}\b', text)
+        # Use a set to automatically handle duplicates during extraction
+        return sorted(list(set(re.findall(r'\b\d{9}\b', text)))) # De-duplicate and sort
 
     def format_sitting_plan_rows(rolls, paper_folder_name, meta):
         rows = []
         for i in range(0, len(rolls), 10):
             row = rolls[i:i+10]
             while len(row) < 10:
-                row.append("")  # pad
+                row.append("")  # pad to ensure 10 roll number columns
             row.extend([
                 meta["class"],
                 meta["mode"],
                 meta["type"],
                 meta["room_number"]
             ])
-            row.extend(meta["seat_numbers"])
+            row.extend(meta["seat_numbers"]) # These are initially blank, filled later by assignment
             row.append(paper_folder_name)  # Use folder name as Paper
             row.append(meta["paper_code"])
             row.append(meta["paper_name"])
@@ -933,11 +746,11 @@ def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_
                             if current_meta['paper_name'] == "UNSPECIFIED_PAPER_NAME":
                                 current_meta['paper_name'] = folder_name
 
-                            rolls = extract_roll_numbers(full_text)
+                            rolls = extract_roll_numbers(full_text) # This now de-duplicates and sorts
                             rows = format_sitting_plan_rows(rolls, paper_folder_name=folder_name, meta=current_meta)
                             all_rows.extend(rows)
                             processed_files_count += 1
-                            st.info(f"✔ Processed: {file} ({len(rolls)} roll numbers)")
+                            st.info(f"✔ Processed: {file} ({len(rolls)} unique roll numbers)")
 
                             # Collect unique exam details for timetable generation
                             unique_exams_for_timetable.append({
@@ -981,6 +794,7 @@ def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_
     else:
         return False, "No roll numbers extracted from PDFs."
 
+
 # --- Integration of rasa_pdf.py logic ---
 def process_attestation_pdfs(zip_file_buffer, output_csv_path):
     all_data = []
@@ -998,20 +812,19 @@ def process_attestation_pdfs(zip_file_buffer, output_csv_path):
             def extract_after(label):
                 for i, line in enumerate(lines):
                     if line.startswith(label):
-                        value = line.replace(label, "").strip()
+                        value = line.replace(label, "", 1).strip() # Use count=1 for replace
                         if value:
                             return value
                         elif i+1 < len(lines):
                             return lines[i+1].strip()
                     # Special handling for "Regular/Backlog" as it might be on the next line
                     if label == "Regular/ Backlog:" and line.startswith("Regular/Backlog"):
-                        value = line.replace("Regular/Backlog", "").strip()
+                        value = line.replace("Regular/Backlog", "", 1).strip() # Use count=1 for replace
                         if value:
                             return value
                         elif i+1 < len(lines):
                             return lines[i+1].strip()
-                    return "" # Return empty string if label not found or value is empty
-                return "" # Return empty string if lines is empty
+                return "" # Return empty string if label not found or value is empty
 
             roll_no = re.match(r"(\d{9})", lines[0]).group(1) if lines and re.match(r"(\d{9})", lines[0]) else ""
             enrollment = extract_after("Enrollment No.:")
@@ -1026,7 +839,7 @@ def process_attestation_pdfs(zip_file_buffer, output_csv_path):
             college = extract_after("College Nmae:") # Note: Original script had 'Nmae'
             address = extract_after("Address:")
 
-            papers = re.findall(r"([^\n]+?\[\\d{5}\][^\n]*)", s)
+            papers = re.findall(r"([^\n]+?\[\d{5}\][^\n]*)", s) # Corrected regex for paper code
 
             student_data = {
                 "Roll Number": roll_no,
@@ -1293,7 +1106,7 @@ def get_session_paper_summary(date_str, shift, sitting_plan_df, assigned_seats_d
         # Get assigned roll numbers for this specific paper, date, and shift
         assigned_rolls_for_paper = set(
             assigned_seats_df[
-                (assigned_seats_df["Paper Code"].astype(str) == paper_code) &
+                (assigned_seats_df["Paper Code"].astype(str).str.strip() == paper_code) & # Use formatted paper code
                 (assigned_seats_df["Date"] == date_str) &
                 (assigned_seats_df["Shift"] == shift)
             ]["Roll Number"].astype(str).tolist()
@@ -1365,7 +1178,7 @@ def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_
                 # Create a temporary key to link sitting plan entries to unique exams in session
                 sp_exam_key = str(sp_row['Class']).strip() + "_" + \
                               str(sp_row['Paper']).strip() + "_" + \
-                              str(sp_row['Paper Code']).strip() + "_" + \
+                              _format_paper_code(sp_row['Paper Code']) + "_" + \
                               str(sp_row['Paper Name']).strip()
                 
                 # Check if this sitting plan entry's exam is part of the current session
@@ -1373,7 +1186,7 @@ def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_
                 for _, ue_row in unique_exams_in_session.iterrows():
                     ue_exam_key = str(ue_row['Class']).strip() + "_" + \
                                   str(ue_row['Paper']).strip() + "_" + \
-                                  str(ue_row['Paper Code']).strip() + "_" + \
+                                  _format_paper_code(ue_row['Paper Code']) + "_" + \
                                   str(ue_row['Paper Name']).strip()
                     if sp_exam_key == ue_exam_key:
                         is_relevant_exam = True
@@ -1578,7 +1391,7 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
             # Truncate paper name to first 20 characters
             truncated_paper_name = paper_name_display[:20]
 
-            student_entry = f"{roll_num}(कक्ष-{room_num_display}-सीट-{seat_num_display})-{truncated_paper_name}"
+            student_entry = f"{roll_num}( कक्ष-{room_num_display}-सीट-{seat_num_display})-{truncated_paper_name}"
             current_line_students.append(student_entry)
 
             if len(current_line_students) == 10:
@@ -1624,7 +1437,7 @@ def display_report_panel():
                 'Room Number': str(row['Room Number']).strip(),
                 'Class': str(row['Class']).strip(), # Keep as string, lower() later
                 'Paper': str(row['Paper']).strip(),   # Keep as string, lower() later
-                'Paper Code': str(row['Paper Code']).strip(), # Keep as string, lower() later
+                'Paper Code': _format_paper_code(row['Paper Code']), # Use formatted paper code
                 'Paper Name': str(row['Paper Name']).strip(), # Keep as string, lower() later
                 'Mode': str(row.get('Mode', '')).strip(),
                 'Type': str(row.get('Type', '')).strip(),
@@ -2072,8 +1885,8 @@ elif menu == "Admin Panel":
         
         if admin_option == "Get All Students for Date & Shift (Room Wise)":
             st.subheader("List All Students for a Date and Shift (Room Wise)")
-            if sitting_plan.empty or timetable.empty:
-                st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' to use this feature.")
+            if assigned_seats_df.empty or timetable.empty: # Changed from sitting_plan to assigned_seats_df
+                st.info("Please ensure seats are assigned and 'timetable.csv' is uploaded to use this feature.")
             else:
                 list_date_input = st.date_input("Select Date", value=datetime.date.today())
                 list_shift_options = ["Morning", "Evening"]
@@ -2083,7 +1896,7 @@ elif menu == "Admin Panel":
                     formatted_student_list_text, error_message, excel_data_for_students_list = get_all_students_for_date_shift_formatted(
                         list_date_input.strftime('%d-%m-%Y'),
                         list_shift,
-                        sitting_plan,
+                        assigned_seats_df, # Pass assigned_seats_df
                         timetable
                     )
                     if formatted_student_list_text:
@@ -2145,8 +1958,8 @@ elif menu == "Admin Panel":
 
         elif admin_option == "Get All Students for Date & Shift (Roll Number Wise)":
             st.subheader("List All Students for a Date and Shift (Roll Number Wise)")
-            if sitting_plan.empty or timetable.empty:
-                st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' to use this feature.")
+            if assigned_seats_df.empty or timetable.empty: # Changed from sitting_plan to assigned_seats_df
+                st.info("Please ensure seats are assigned and 'timetable.csv' is uploaded to use this feature.")
             else:
                 list_date_input = st.date_input("Select Date", value=datetime.date.today(), key="roll_num_wise_date")
                 list_shift_options = ["Morning", "Evening"]
@@ -2156,7 +1969,7 @@ elif menu == "Admin Panel":
                     formatted_student_list_text, error_message, excel_data_for_students_list = get_all_students_roll_number_wise_formatted(
                         list_date_input.strftime('%d-%m-%Y'),
                         list_shift,
-                        sitting_plan,
+                        assigned_seats_df, # Pass assigned_seats_df
                         timetable
                     )
                     if formatted_student_list_text:
@@ -2375,14 +2188,15 @@ elif menu == "Admin Panel":
 
                 # Filter relevant papers based on selected date and shift
                 filtered_papers = timetable[(timetable["Date"] == date) & (timetable["Shift"] == shift)]
+                # Ensure paper codes are formatted for display
                 paper_options = filtered_papers[["Paper Code", "Paper Name"]].drop_duplicates().values.tolist()
-                paper_display = [f"{code} - {name}" for code, name in paper_options]
+                paper_display = [f"{_format_paper_code(code)} - {name}" for code, name in paper_options]
 
                 selected_paper = st.selectbox("Select Paper Code and Name", paper_display, key="assign_paper_select")
 
                 # Only proceed if a paper is selected
                 if selected_paper:
-                    paper_code = selected_paper.split(" - ")[0].strip()
+                    paper_code = _format_paper_code(selected_paper.split(" - ")[0]) # Format the extracted code
                     paper_name = selected_paper.split(" - ", 1)[1].strip()
 
                     st.subheader("Room & Seat Configuration")
@@ -2440,13 +2254,13 @@ elif menu == "Admin Panel":
                         # Extract roll numbers for the selected paper from sitting_plan
                         roll_cols = [col for col in sitting_plan.columns if col.lower().startswith("roll number")]
                         # Ensure Paper Code is treated as string for comparison
-                        paper_rows = sitting_plan[sitting_plan["Paper Code"].astype(str) == paper_code]
+                        paper_rows = sitting_plan[sitting_plan["Paper Code"].astype(str) == paper_code] # Use formatted paper code
                         all_rolls = paper_rows[roll_cols].values.flatten()
                         all_rolls = [str(r).strip() for r in all_rolls if str(r).strip() and str(r).lower() != 'nan']
 
                         # Remove previously assigned roll numbers for this paper/date/shift
                         already_assigned_rolls = assigned_seats_df[
-                            (assigned_seats_df["Paper Code"].astype(str) == paper_code) &
+                            (assigned_seats_df["Paper Code"].astype(str) == paper_code) & # Use formatted paper code
                             (assigned_seats_df["Date"] == date) &
                             (assigned_seats_df["Shift"] == shift)
                         ]["Roll Number"].astype(str).tolist()
@@ -2519,7 +2333,7 @@ elif menu == "Admin Panel":
                             else:
                                 assigned_rows.append({
                                     "Roll Number": roll,
-                                    "Paper Code": int(paper_code),
+                                    "Paper Code": paper_code, # Keep as string
                                     "Paper Name": paper_name,
                                     "Room Number": room,
                                     "Seat Number": seat_num_str,
@@ -2623,7 +2437,7 @@ elif menu == "Admin Panel":
             st.info("Generate a detailed room chart showing student seating arrangements for a specific exam session.")
 
             if sitting_plan.empty or timetable.empty or assigned_seats_df.empty:
-                st.warning("Please upload 'sitting_plan.csv', 'timetable.csv', and ensure seats are assigned via 'Assign Rooms & Seats to Students' to generate this report.")
+                st.warning("Please upload 'sitting_plan.csv', 'timetable.csv', and ensure seats are assigned via 'Assign Rooms & Seats to Students' (Admin Panel) to generate this report.")
                 st.stop() # Use st.stop() to halt execution if critical data is missing
             
             # Date and Shift filters for the room chart
@@ -2803,7 +2617,6 @@ elif menu == "Centre Superintendent Panel":
                 loaded_class_4 = []
 
 
-
                 if not current_assignment_for_shift.empty:
                     loaded_senior_cs = current_assignment_for_shift.iloc[0].get('senior_center_superintendent', [])
                     loaded_cs = current_assignment_for_shift.iloc[0].get('center_superintendent', [])
@@ -2812,7 +2625,6 @@ elif menu == "Centre Superintendent Panel":
                     loaded_assist_perm_inv = current_assignment_for_shift.iloc[0].get('assistant_permanent_invigilator', [])
                     loaded_class_3 = current_assignment_for_shift.iloc[0].get('class_3_worker', [])
                     loaded_class_4 = current_assignment_for_shift.iloc[0].get('class_4_worker', [])
-
 
 
                 selected_senior_cs = st.multiselect("Senior Center Superintendent (Max 1)", all_team_members, default=loaded_senior_cs, max_selections=1)
@@ -2921,175 +2733,146 @@ elif menu == "Centre Superintendent Panel":
 
         elif cs_panel_option == "Report Exam Session":
             st.subheader("📝 Report Exam Session")
-            if sitting_plan.empty or timetable.empty:
-                st.info("Please upload both 'sitting_plan.csv' and 'timetable.csv' via the Admin Panel to report exam sessions.")
+            if assigned_seats_df.empty or timetable.empty: # Check assigned_seats_df instead of sitting_plan
+                st.info("Please ensure seats are assigned and 'timetable.csv' is uploaded via the Admin Panel to report exam sessions.")
             else:
                 # Date and Shift selection
                 report_date = st.date_input("Select Date", value=datetime.date.today(), key="cs_report_date")
                 report_shift = st.selectbox("Select Shift", ["Morning", "Evening"], key="cs_report_shift")
 
-                # Filter timetable for selected date and shift to get available exams
-                available_exams_tt = timetable[
-                    (timetable["Date"].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
-                    (timetable["Shift"].astype(str).str.strip().str.lower() == report_shift.lower())
-                ]
+                # Filter assigned_seats_df for selected date and shift to get available exam sessions
+                available_sessions_assigned = assigned_seats_df[
+                    (assigned_seats_df["Date"].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
+                    (assigned_seats_df["Shift"].astype(str).str.strip().str.lower() == report_shift.lower())
+                ].copy()
 
-                if available_exams_tt.empty:
-                    st.warning("No exams scheduled for the selected date and shift.")
+                if available_sessions_assigned.empty:
+                    st.warning("No assigned seats found for the selected date and shift. Please assign seats via the Admin Panel first.")
                 else:
-                    # Get unique exam sessions (Room + Paper Code) from sitting_plan that match timetable
-                    
-                    # Prepare sitting_plan for merging by creating a common key
-                    sitting_plan_temp = sitting_plan.copy()
-                    sitting_plan_temp['merge_key'] = sitting_plan_temp['Class'].astype(str).str.strip().str.lower() + "_" + \
-                                                      sitting_plan_temp['Paper'].astype(str).str.strip() + "_" + \
-                                                      sitting_plan_temp['Paper Code'].astype(str).str.strip() + "_" + \
-                                                      sitting_plan_temp['Paper Name'].astype(str).str.strip()
+                    # Create a unique identifier for each exam session (Room - Paper Code (Paper Name))
+                    # Ensure Paper Code and Paper Name are strings before combining
+                    available_sessions_assigned['Paper Code'] = available_sessions_assigned['Paper Code'].astype(str)
+                    available_sessions_assigned['Paper Name'] = available_sessions_assigned['Paper Name'].astype(str)
 
-                    # Prepare available_exams_tt for merging
-                    available_exams_tt_temp = available_exams_tt.copy()
-                    available_exams_tt_temp['merge_key'] = available_exams_tt_temp['merge_key'] = available_exams_tt_temp['Class'].astype(str).str.strip().str.lower() + "_" + \
-                                                            available_exams_tt_temp['Paper'].astype(str).str.strip() + "_" + \
-                                                            available_exams_tt_temp['Paper Code'].astype(str).str.strip() + "_" + \
-                                                            available_exams_tt_temp['Paper Name'].astype(str).str.strip()
-
-                    merged_data = pd.merge(
-                        available_exams_tt_temp,
-                        sitting_plan_temp,
-                        on='merge_key',
-                        how='inner',
-                        suffixes=('_tt', '_sp')
-                    )
+                    available_sessions_assigned['exam_session_id'] = \
+                        available_sessions_assigned['Room Number'].astype(str).str.strip() + " - " + \
+                        available_sessions_assigned['Paper Code'].apply(_format_paper_code) + " (" + \
+                        available_sessions_assigned['Paper Name'].str.strip() + ")"
                     
-                    if merged_data.empty:
-                        st.warning("No sitting plan data found for the selected exams. Ensure data consistency.")
+                    unique_exam_sessions = available_sessions_assigned[['Room Number', 'Paper Code', 'Paper Name', 'exam_session_id']].drop_duplicates().sort_values(by='exam_session_id')
+                    
+                    if unique_exam_sessions.empty:
+                        st.warning("No unique exam sessions found for the selected date and shift in assigned seats.")
                     else:
-                        # Create a unique identifier for each exam session (Room - Paper Code (Paper Name))
-                        merged_data['exam_session_id'] = merged_data['Room Number'].astype(str).str.strip() + " - " + \
-                                                          merged_data['Paper Code_tt'].astype(str).str.strip() + " (" + \
-                                                          merged_data['Paper Name_tt'].astype(str).str.strip() + ")"
-                        
-                        unique_exam_sessions = merged_data[['Room Number', 'Paper Code_tt', 'Paper Name_tt', 'exam_session_id']].drop_duplicates().sort_values(by='exam_session_id')
-                        
-                        if unique_exam_sessions.empty:
-                            st.warning("No unique exam sessions found for the selected date and shift.")
-                        else:
-                            selected_exam_session_option = st.selectbox(
-                                "Select Exam Session (Room - Paper Code (Paper Name))",
-                                [""] + unique_exam_sessions['exam_session_id'].tolist(),
-                                key="cs_exam_session_select"
+                        selected_exam_session_option = st.selectbox(
+                            "Select Exam Session (Room - Paper Code (Paper Name))",
+                            [""] + unique_exam_sessions['exam_session_id'].tolist(),
+                            key="cs_exam_session_select"
+                        )
+
+                        if selected_exam_session_option:
+                            # Extract room_number, paper_code, paper_name from the selected option
+                            selected_room_num = selected_exam_session_option.split(" - ")[0].strip()
+                            selected_paper_code_with_name = selected_exam_session_option.split(" - ", 1)[1].strip()
+                            selected_paper_code = _format_paper_code(selected_paper_code_with_name.split(" (")[0]) # Format the extracted code
+                            selected_paper_name = selected_paper_code_with_name.split(" (")[1].replace(")", "").strip()
+
+                            # Find the corresponding class for the selected session from timetable
+                            # This assumes a paper code/name maps to a consistent class in the timetable
+                            matching_class_info = timetable[
+                                (timetable['Paper Code'].astype(str).str.strip() == selected_paper_code) & # Use formatted paper code
+                                (timetable['Paper Name'].astype(str).str.strip() == selected_paper_name)
+                            ]
+                            selected_class = ""
+                            if not matching_class_info.empty:
+                                selected_class = str(matching_class_info.iloc[0]['Class']).strip()
+
+                            # Create a unique key for CSV row ID
+                            report_key = f"{report_date.strftime('%Y%m%d')}_{report_shift.lower()}_{selected_room_num}_{selected_paper_code}"
+
+                            # Load existing report from CSV
+                            loaded_success, loaded_report = load_single_cs_report_csv(report_key)
+                            if loaded_success:
+                                st.info("Existing report loaded.")
+                            else:
+                                st.info("No existing report found for this session. Starting new.")
+                                loaded_report = {} # Ensure it's an empty dict if not found
+
+                            # MODIFIED: Get all *assigned* roll numbers for this specific session from assigned_seats_df
+                            expected_students_for_session = assigned_seats_df[
+                                (assigned_seats_df['Room Number'].astype(str).str.strip() == selected_room_num) &
+                                (assigned_seats_df['Paper Code'].astype(str).str.strip() == selected_paper_code) & # Use formatted paper code
+                                (assigned_seats_df['Paper Name'].astype(str).str.strip() == selected_paper_name) &
+                                (assigned_seats_df['Date'].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
+                                (assigned_seats_df['Shift'].astype(str).str.strip().str.lower() == report_shift.lower())
+                            ]['Roll Number'].astype(str).tolist()
+                            
+                            expected_students_for_session = sorted(list(set(expected_students_for_session))) # Remove duplicates and sort
+
+                            st.write(f"**Reporting for:** Room {selected_room_num}, Paper: {selected_paper_name} ({selected_paper_code})")
+
+                            # Multiselect for Absent Roll Numbers
+                            absent_roll_numbers_selected = st.multiselect(
+                                "Absent Roll Numbers", 
+                                options=expected_students_for_session, 
+                                default=loaded_report.get('absent_roll_numbers', []),
+                                key="absent_roll_numbers_multiselect"
                             )
 
-                            if selected_exam_session_option:
-                                # Extract room_number, paper_code, paper_name from the selected option
-                                selected_room_num = selected_exam_session_option.split(" - ")[0].strip()
-                                selected_paper_code_with_name = selected_exam_session_option.split(" - ")[1].strip()
-                                selected_paper_code = selected_paper_code_with_name.split(" (")[0].strip()
-                                selected_paper_name = selected_paper_code_with_name.split(" (")[1].replace(")", "").strip()
+                            # Multiselect for UFM Roll Numbers
+                            ufm_roll_numbers_selected = st.multiselect(
+                                "UFM (Unfair Means) Roll Numbers", 
+                                options=expected_students_for_session, 
+                                default=loaded_report.get('ufm_roll_numbers', []),
+                                key="ufm_roll_numbers_multiselect"
+                            )
 
-                                # Find the corresponding class for the selected session
-                                # Assuming for a given room, paper_code, paper_name, there's a consistent class.
-                                matching_session_info = merged_data[
-                                    (merged_data['Room Number'].astype(str).str.strip() == selected_room_num) &
-                                    (merged_data['Paper Code_tt'].astype(str).str.strip() == selected_paper_code) &
-                                    (merged_data['Paper Name_tt'].astype(str).str.strip() == selected_paper_name)
-                                ]
-                                selected_class = ""
-                                if not matching_session_info.empty:
-                                    selected_class = str(matching_session_info.iloc[0]['Class_sp']).strip() # Use Class_sp from sitting plan
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button("Save Report", key="save_cs_report"):
+                                    # --- Validation Logic ---
+                                    expected_set = set(expected_students_for_session)
+                                    absent_set = set(absent_roll_numbers_selected)
+                                    ufm_set = set(ufm_roll_numbers_selected)
 
-                                # Create a unique key for CSV row ID
-                                report_key = f"{report_date.strftime('%Y%m%d')}_{report_shift.lower()}_{selected_room_num}_{selected_paper_code}"
+                                    validation_errors = []
 
-                                # Load existing report from CSV
-                                loaded_success, loaded_report = load_single_cs_report_csv(report_key)
-                                if loaded_success:
-                                    st.info("Existing report loaded.")
-                                else:
-                                    st.info("No existing report found for this session. Starting new.")
-                                    loaded_report = {} # Ensure it's an empty dict if not found
+                                    # 1. All reported absent students must be in the expected list
+                                    if not absent_set.issubset(expected_set):
+                                        invalid_absent = list(absent_set.difference(expected_set))
+                                        validation_errors.append(f"Error: Absent roll numbers {invalid_absent} are not in the expected student list for this session.")
 
-                                # Get all expected roll numbers for this specific session
-                                expected_students_for_session = []
-                                # Filter merged_data for the selected session
-                                session_students = merged_data[
-                                    (merged_data['Room Number'].astype(str).str.strip() == selected_room_num) &
-                                    (merged_data['Paper Code_tt'].astype(str).str.strip() == selected_paper_code) &
-                                    (merged_data['Paper Name_tt'].astype(str).str.strip() == selected_paper_name)
-                                ]
+                                    # 2. All reported UFM students must be in the expected list
+                                    if not ufm_set.issubset(expected_set):
+                                        invalid_ufm = list(ufm_set.difference(expected_set))
+                                        validation_errors.append(f"Error: UFM roll numbers {invalid_ufm} are not in the expected student list for this session.")
 
-                                for _, row in session_students.iterrows():
-                                    for i in range(1, 11):
-                                        roll_col = f"Roll Number {i}"
-                                        if roll_col in row.index and pd.notna(row[roll_col]) and str(row[roll_col]).strip() != '':
-                                            expected_students_for_session.append(str(row[roll_col]).strip())
-                                
-                                expected_students_for_session = sorted(list(set(expected_students_for_session))) # Remove duplicates and sort
-
-                                st.write(f"**Reporting for:** Room {selected_room_num}, Paper: {selected_paper_name} ({selected_paper_code})")
-
-                                # Multiselect for Absent Roll Numbers
-                                absent_roll_numbers_selected = st.multiselect(
-                                    "Absent Roll Numbers", 
-                                    options=expected_students_for_session, 
-                                    default=loaded_report.get('absent_roll_numbers', []),
-                                    key="absent_roll_numbers_multiselect"
-                                )
-
-                                # Multiselect for UFM Roll Numbers
-                                ufm_roll_numbers_selected = st.multiselect(
-                                    "UFM (Unfair Means) Roll Numbers", 
-                                    options=expected_students_for_session, 
-                                    default=loaded_report.get('ufm_roll_numbers', []),
-                                    key="ufm_roll_numbers_multiselect"
-                                )
-
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.button("Save Report", key="save_cs_report"):
-                                        # --- Validation Logic ---
-                                        expected_set = set(expected_students_for_session)
-                                        absent_set = set(absent_roll_numbers_selected)
-                                        ufm_set = set(ufm_roll_numbers_selected)
-
-                                        validation_errors = []
-
-                                        # 1. All reported absent students must be in the expected list
-                                        if not absent_set.issubset(expected_set):
-                                            invalid_absent = list(absent_set.difference(expected_set))
-                                            validation_errors.append(f"Error: Absent roll numbers {invalid_absent} are not in the expected student list for this session.")
-
-                                        # 2. All reported UFM students must be in the expected list
-                                        if not ufm_set.issubset(expected_set):
-                                            invalid_ufm = list(ufm_set.difference(expected_set))
-                                            validation_errors.append(f"Error: UFM roll numbers {invalid_ufm} are not in the expected student list for this session.")
-
-                                        # 3. No student can be both absent and UFM
-                                        if not absent_set.isdisjoint(ufm_set):
-                                            overlap = list(absent_set.intersection(ufm_set))
-                                            validation_errors.append(f"Error: Roll numbers {overlap} are marked as both Absent and UFM. A student cannot be both.")
-                                        
-                                        if validation_errors:
-                                            for err in validation_errors:
-                                                st.error(err)
+                                    # 3. No student can be both absent and UFM
+                                    if not absent_set.isdisjoint(ufm_set):
+                                        overlap = list(absent_set.intersection(ufm_set))
+                                        validation_errors.append(f"Error: Roll numbers {overlap} are marked as both Absent and UFM. A student cannot be both.")
+                                    
+                                    if validation_errors:
+                                        for err in validation_errors:
+                                            st.error(err)
+                                    else:
+                                        report_data = {
+                                            'report_key': report_key, # Add report_key to data
+                                            'date': report_date.strftime('%d-%m-%Y'),
+                                            'shift': report_shift,
+                                            'room_num': selected_room_num,
+                                            'paper_code': selected_paper_code,
+                                            'paper_name': selected_paper_name,
+                                            'class': selected_class, # Added 'class' here
+                                            'absent_roll_numbers': absent_roll_numbers_selected, # Store as list
+                                            'ufm_roll_numbers': ufm_roll_numbers_selected # Store as list
+                                        }
+                                        success, message = save_cs_report_csv(report_key, report_data)
+                                        if success:
+                                            st.success(message)
                                         else:
-                                            report_data = {
-                                                'report_key': report_key, # Add report_key to data
-                                                'date': report_date.strftime('%d-%m-%Y'),
-                                                'shift': report_shift,
-                                                'room_num': selected_room_num,
-                                                'paper_code': selected_paper_code,
-                                                'paper_name': selected_paper_name,
-                                                'class': selected_class, # Added 'class' here
-                                                'absent_roll_numbers': absent_roll_numbers_selected, # Store as list
-                                                'ufm_roll_numbers': ufm_roll_numbers_selected # Store as list
-                                            }
-                                            success, message = save_cs_report_csv(report_key, report_data)
-                                            if success:
-                                                st.success(message)
-                                            else:
-                                                st.error(message)
-                                            st.rerun() # Rerun to refresh the UI with saved data
+                                            st.error(message)
+                                        st.rerun() # Rerun to refresh the UI with saved data
 
                                 st.markdown("---")
                                 st.subheader("All Saved Reports (for debugging/review)")
