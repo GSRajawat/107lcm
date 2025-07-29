@@ -651,12 +651,12 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
 # New helper function based on pdftocsv.py's extract_metadata, but using "UNSPECIFIED" defaults
 def extract_metadata_from_pdf_text(text):
     # Extract Class Group and Year like "BSC", "2YEAR"
-    class_match = re.search(r'([A-Z]+)\s*/?\s*(\d+YEAR)', text)
+    class_match = re.search(r'([A-Z]+)\s*/?\s*(\d+SEM)', text)
     class_val = f"{class_match.group(1)} {class_match.group(2)}" if class_match else "UNSPECIFIED_CLASS"
 
-    # Detect mode/type: REGULAR, PRIVATE, SUPP, EXR
+    # Detect mode/type: REGULAR, PRIVATE, ATKT, SUPP, EXR
     mode_type = "UNSPECIFIED_MODE"
-    for keyword in ["REGULAR", "SUPP", "EXR", "PRIVATE"]:
+    for keyword in ["REGULAR", "ATKT","SUPP", "EXR", "PRIVATE"]:
         if keyword in text.upper():
             mode_type = keyword
             break
