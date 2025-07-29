@@ -50,12 +50,12 @@ def load_shift_assignments():
             st.error(f"Error loading shift assignments: {e}. Reinitializing shift assignments file.")
             # If an error occurs during loading, reinitialize the DataFrame with correct columns
             return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
-                                         'assistant_center_superintendent', 'permanent_invigilator', 
-                                         'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']) # Added new columns here
+                                         "assistant_center_superintendent", "permanent_invigilator", 
+                                         "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"]) # Added new columns here
     # If file does not exist, create a new DataFrame with all columns
     return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
-                                 'assistant_center_superintendent', 'permanent_invigilator', 
-                                 'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']) # Added new columns here
+                                 "assistant_center_superintendent", "permanent_invigilator", 
+                                 "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"]) # Added new columns here
 
 def save_shift_assignment(date, shift, assignments):
     assignments_df = load_shift_assignments()
@@ -763,36 +763,109 @@ def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_
                         except Exception as e:
                             st.error(f"❌ Failed to process {file}: {e}")
     
+    # --- Sitting Plan Update Logic ---
     if all_rows:
-        df_sitting_plan = pd.DataFrame(all_rows, columns=sitting_plan_columns)
-        df_sitting_plan.to_csv(output_sitting_plan_path, index=False)
-        st.success(f"Successfully processed {processed_files_count} PDFs and saved sitting plan to {output_sitting_plan_path}")
+        df_new_sitting_plan = pd.DataFrame(all_rows, columns=sitting_plan_columns)
 
-        # Generate incomplete timetable based on unique exams found
-        if unique_exams_for_timetable:
-            df_unique_exams = pd.DataFrame(unique_exams_for_timetable).drop_duplicates().reset_index(drop=True)
-            
-            timetable_data = []
-            for idx, row in df_unique_exams.iterrows():
-                timetable_data.append({
-                    "SN": idx + 1,
-                    "Date": "", # Blank
-                    "Shift": "",    # Blank
-                    "Time": "", # Blank
-                    "Class": row['Class'], # Now guaranteed to be non-blank
-                    "Paper": row['Paper'],
-                    "Paper Code": row['Paper Code'], # Now guaranteed to be non-blank
-                    "Paper Name": row['Paper Name'] # Now guaranteed to be non-blank
+        # Load existing sitting plan data
+        existing_sitting_plan_df = pd.DataFrame()
+        if os.path.exists(output_sitting_plan_path):
+            try:
+                existing_sitting_plan_df = pd.read_csv(output_sitting_plan_path, dtype={
+                    f"Roll Number {i}": str for i in range(1, 11)
                 })
-            df_timetable = pd.DataFrame(timetable_data)
-            df_timetable.to_csv(output_timetable_path, index=False)
-            st.success(f"Generated initial timetable based on sitting plan papers and saved to {output_timetable_path}. Please update dates, shifts, and times as needed.")
-        else:
-            st.warning("No unique exam details found to generate an initial timetable.")
+                existing_sitting_plan_df.columns = existing_sitting_plan_df.columns.str.strip()
+                if 'Paper Code' in existing_sitting_plan_df.columns:
+                    existing_sitting_plan_df['Paper Code'] = existing_sitting_plan_df['Paper Code'].apply(_format_paper_code)
+            except Exception as e:
+                st.warning(f"Could not load existing sitting plan data for update: {e}. Starting fresh for sitting plan.")
+                existing_sitting_plan_df = pd.DataFrame(columns=sitting_plan_columns)
 
-        return True, "PDF processing complete."
+        # Ensure all columns are present in both DataFrames before concatenation
+        # Add missing columns to df_new_sitting_plan from existing_sitting_plan_df
+        for col in existing_sitting_plan_df.columns:
+            if col not in df_new_sitting_plan.columns:
+                df_new_sitting_plan[col] = pd.NA
+        # Add missing columns to existing_sitting_plan_df from df_new_sitting_plan
+        for col in df_new_sitting_plan.columns:
+            if col not in existing_sitting_plan_df.columns:
+                existing_sitting_plan_df[col] = pd.NA
+
+        # Reorder columns to match existing_sitting_plan_df before concatenation
+        df_new_sitting_plan = df_new_sitting_plan[existing_sitting_plan_df.columns]
+
+        # Concatenate and remove duplicates
+        combined_sitting_plan_df = pd.concat([existing_sitting_plan_df, df_new_sitting_plan], ignore_index=True)
+
+        # Define columns for identifying unique sitting plan entries.
+        roll_num_cols = [f"Roll Number {i+1}" for i in range(10)]
+        
+        # Using all relevant columns to define uniqueness for sitting plan entries
+        subset_cols_sitting_plan = roll_num_cols + ["Class", "Mode", "Type", "Room Number", "Paper", "Paper Code", "Paper Name"]
+        
+        # Filter subset_cols_sitting_plan to only include columns actually present in the DataFrame
+        existing_subset_cols_sitting_plan = [col for col in subset_cols_sitting_plan if col in combined_sitting_plan_df.columns]
+
+        # Fill NaN values with empty strings before dropping duplicates for consistent hashing
+        combined_sitting_plan_df_filled = combined_sitting_plan_df.fillna('')
+        df_sitting_plan_final = combined_sitting_plan_df_filled.drop_duplicates(subset=existing_subset_cols_sitting_plan, keep='first')
+
+        df_sitting_plan_final.to_csv(output_sitting_plan_path, index=False)
+        st.success(f"Successfully processed {processed_files_count} PDFs and updated sitting plan to {output_sitting_plan_path}")
     else:
-        return False, "No roll numbers extracted from PDFs."
+        st.warning("No roll numbers extracted from PDFs to update sitting plan.")
+
+    # --- Timetable Update Logic ---
+    if unique_exams_for_timetable:
+        df_new_timetable_entries = pd.DataFrame(unique_exams_for_timetable).drop_duplicates().reset_index(drop=True)
+
+        # Load existing timetable data
+        existing_timetable_df = pd.DataFrame()
+        if os.path.exists(output_timetable_path):
+            try:
+                existing_timetable_df = pd.read_csv(output_timetable_path)
+                existing_timetable_df.columns = existing_timetable_df.columns.str.strip()
+                if 'Paper Code' in existing_timetable_df.columns:
+                    existing_timetable_df['Paper Code'] = existing_timetable_df['Paper Code'].apply(_format_paper_code)
+            except Exception as e:
+                st.warning(f"Could not load existing timetable data for update: {e}. Starting fresh for timetable.")
+                existing_timetable_df = pd.DataFrame(columns=["SN", "Date", "Shift", "Time", "Class", "Paper", "Paper Code", "Paper Name"])
+
+        # Ensure all columns are present in both DataFrames before concatenation
+        # Add missing columns to new_timetable_entries with NaN values
+        for col in existing_timetable_df.columns:
+            if col not in df_new_timetable_entries.columns:
+                df_new_timetable_entries[col] = pd.NA
+        
+        # Add missing columns to existing_timetable_df with NaN values
+        for col in df_new_timetable_entries.columns:
+            if col not in existing_timetable_df.columns:
+                existing_timetable_df[col] = pd.NA
+
+        # Reorder columns to match existing_timetable_df before concatenation
+        df_new_timetable_entries = df_new_timetable_entries[existing_timetable_df.columns]
+        
+        combined_timetable_df = pd.concat([existing_timetable_df, df_new_timetable_entries], ignore_index=True)
+        
+        # Define columns for identifying unique timetable entries (Class, Paper, Paper Code, Paper Name)
+        timetable_subset_cols = ['Class', 'Paper', 'Paper Code', 'Paper Name']
+
+        # Filter timetable_subset_cols to only include columns actually present in the DataFrame
+        existing_timetable_subset_cols = [col for col in timetable_subset_cols if col in combined_timetable_df.columns]
+
+        # Fill NaN values in the subset columns for consistent duplicate detection
+        combined_timetable_df_filled = combined_timetable_df.fillna('')
+        df_timetable_final = combined_timetable_df_filled.drop_duplicates(subset=existing_timetable_subset_cols, keep='first')
+        
+        # Re-index SN column after dropping duplicates
+        if "SN" in df_timetable_final.columns:
+            df_timetable_final["SN"] = range(1, len(df_timetable_final) + 1)
+
+        df_timetable_final.to_csv(output_timetable_path, index=False)
+        st.success(f"Generated initial timetable based on sitting plan papers and updated to {output_timetable_path}. Please update dates, shifts, and times as needed.")
+    else:
+        st.warning("No unique exam details found to generate an initial timetable.")
+    return True, "PDF processing complete."
 
 
 # --- Integration of rasa_pdf.py logic ---
@@ -898,82 +971,75 @@ def generate_college_statistics(input_csv_path, output_csv_path):
         return False, f"Input file not found: {input_csv_path}. Please process attestation PDFs first."
 
     try:
-        df = pd.read_csv(input_csv_path)
+        df = pd.read_csv(input_csv_path, dtype={"Roll Number": str, "Enrollment Number": str})
 
-        # ----------------------
-        # STEP 1: Simplify Fields
-        # ----------------------
+        # Data Cleaning and Preparation
+        df['College Name'] = df['College Name'].fillna('UNKNOWN').astype(str).str.strip().str.upper()
+        df['Exam Name'] = df['Exam Name'].fillna('UNKNOWN').astype(str).str.strip().str.upper()
+        df['Paper 1 Code'] = df['Paper 1'].str.extract(r'\[(\d{5})\]').iloc[:, 0].fillna('UNKNOWN').apply(_format_paper_code)
+        
+        # Function to extract Class from Exam Name
+        def extract_class(exam_name):
+            if pd.isna(exam_name):
+                return 'UNKNOWN'
+            exam_name_upper = str(exam_name).upper()
+            # More specific regex for classes like B.SC. III YEAR, B.A. II YEAR, M.A. (PREVIOUS)
+            class_match = re.search(r'\b(B\.\s*A\.|B\.\s*SC\.|B\.\s*COM\.|M\.\s*A\.|M\.\s*SC\.|M\.\s*COM\.)\s*(?:[IVXLCDM]+\s*YEAR|\(?[A-Z]+\)?)', exam_name_upper)
+            if class_match:
+                return class_match.group(0).strip()
+            # General pattern for Year (e.g., I YEAR, II YEAR, III YEAR)
+            year_match = re.search(r'\b([IVXLCDM]+)\s*YEAR\b', exam_name_upper)
+            if year_match:
+                return year_match.group(0).strip()
+            return 'UNKNOWN' # Default if no pattern matches
 
-        # Extract Class Group and Year like "BSC", "2YEAR"
-        def simplify_class(text):
-            match = re.match(r'([A-Z]+)\s*-\s*.*?(\d+YEAR)', str(text).upper())
-            if match:
-                return match.group(1), match.group(2)
-            return "UNKNOWN", "UNKNOWN"
+        df['Class'] = df['Exam Name'].apply(extract_class)
 
-        df["Class"] = df["Exam Name"].str.upper().str.strip()
-        df["Regular/Backlog"] = df["Regular/Backlog"].str.upper().str.strip()
-        df["College Name"] = df["College Name"].str.upper().str.strip()
+        # Calculate total students per college, exam, class
+        college_exam_class_counts = df.groupby(['College Name', 'Exam Name', 'Class']).size().reset_index(name='Total Students')
 
-        df[["Class Group", "Year"]] = df["Class"].apply(lambda x: pd.Series(simplify_class(x)))
+        # Calculate statistics per paper code per college per exam (total students taking each paper)
+        # We need to pivot the papers first
+        paper_columns = [col for col in df.columns if 'Paper ' in col and 'Code' not in col]
+        
+        # Melt the DataFrame to have one row per student-paper combination
+        df_melted_papers = df.melt(
+            id_vars=['College Name', 'Exam Name', 'Class', 'Roll Number'], 
+            value_vars=paper_columns, 
+            var_name='Paper_Col', 
+            value_name='Paper_Info'
+        ).dropna(subset=['Paper_Info'])
 
-        # --------------------------
-        # STEP 2: Prepare Class Blocks
-        # --------------------------
+        # Extract Paper Code and Paper Name from the melted 'Paper_Info'
+        df_melted_papers['Paper Code'] = df_melted_papers['Paper_Info'].str.extract(r'\[(\d{5})\]').iloc[:, 0].fillna('UNKNOWN').apply(_format_paper_code)
+        df_melted_papers['Paper Name'] = df_melted_papers['Paper_Info'].str.replace(r'\[\d{5}\]', '', regex=True).str.strip()
+        
+        # Aggregate paper counts
+        college_exam_paper_counts = df_melted_papers.groupby(['College Name', 'Exam Name', 'Class', 'Paper Code', 'Paper Name']).size().reset_index(name='Students Taking Paper')
 
-        class_groups = sorted(df["Class Group"].dropna().unique())
-        college_list = sorted(df["College Name"].dropna().unique())
+        # Combine results
+        # Merge total students with paper-wise student counts
+        combined_stats = pd.merge(
+            college_exam_paper_counts, 
+            college_exam_class_counts, 
+            on=['College Name', 'Exam Name', 'Class'], 
+            how='left'
+        )
 
-        # Helper to count per college/class group/year
-        def get_counts(df, college, group, year):
-            subset = df[(df["College Name"] == college) & (df["Class Group"] == group) & (df["Year"] == year)]
-            total = len(subset)
-            regular = len(subset[subset["Regular/Backlog"] == "REGULAR"])
-            ex = len(subset[subset["Regular/Backlog"] == "EX"])
-            supp = len(subset[subset["Regular/Backlog"] == "SUPP"])
-            return [total, regular, ex, supp]
+        # Reorder columns for desired output format
+        final_df = combined_stats[[
+            'College Name', 
+            'Exam Name', 
+            'Class', 
+            'Paper Code', 
+            'Paper Name', 
+            'Students Taking Paper', 
+            'Total Students'
+        ]].sort_values(by=['College Name', 'Exam Name', 'Class', 'Paper Code']).reset_index(drop=True)
 
-        # -----------------------
-        # STEP 3: Build CSV Rows
-        # -----------------------
-
-        output_rows = []
-
-        for group in class_groups:
-            years = sorted(df[df["Class Group"] == group]["Year"].dropna().unique())
-
-            # Header rows
-            header_row1 = ["Class"] + [f"{group} - {year}" for year in years for _ in range(4)]
-            header_row2 = ["College", "Grand Total"] + ["Total", "Regular", "EX", "SUPP"] * len(years)
-
-            block_data = []
-            for college in college_list:
-                row = [college]
-                grand_total = 0
-                for year in years:
-                    t, r, e, s = get_counts(df, college, group, year)
-                    row += [t, r, e, s]
-                    grand_total += t
-                row.insert(1, grand_total)
-                block_data.append(row)
-
-            # Append this group block
-            output_rows.append(header_row1)
-            output_rows.append(header_row2)
-            output_rows += block_data
-            output_rows.append([])  # Spacer row
-
-        # Final Summary Block
-        output_rows.append(["College", "Total of all"])
-        for college in college_list:
-            total = len(df[df["College Name"] == college])
-            output_rows.append([college, total])
-
-        # --------------------------
-        # STEP 4: Save to CSV
-        # --------------------------
-        pd.DataFrame(output_rows).to_csv(output_csv_path, index=False, header=False)
-        return True, f"Statistics saved in layout format to: {output_csv_path}"
+        # Save to CSV
+        final_df.to_csv(output_csv_path, index=False)
+        return True, f"College statistics generated and saved to {output_csv_path}"
 
     except Exception as e:
         return False, f"Error generating college statistics: {e}"
@@ -1750,6 +1816,316 @@ def display_report_panel():
         else:
             st.info("No UFM cases in the filtered reports.")
 
+# --- Remuneration Calculation Functions (from bill.py) ---
+def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df, timetable_df, assigned_seats_df,
+                            manual_rates, prep_closing_assignments, holiday_dates):
+    """
+    Calculates the remuneration for all team members based on assignments and rules,
+    including individually selected preparation and closing days and holiday conveyance allowance.
+    """
+    remuneration_data_detailed_raw = []
+    
+    # Define remuneration rules and their base rates
+    remuneration_rules = {
+        'senior_center_superintendent': {'role_display': 'Senior Center Superintendent', 'rate': manual_rates['senior_center_superintendent_rate'], 'unit': 'day', 'eligible_prep_close': True},
+        'center_superintendent': {'role_display': 'Center Superintendent', 'rate': manual_rates['center_superintendent_rate'], 'unit': 'shift', 'eligible_prep_close': True},
+        'assistant_center_superintendent': {'role_display': 'Assistant Center Superintendent', 'rate': manual_rates['assistant_center_superintendent_rate'], 'unit': 'shift', 'eligible_prep_close': True},
+        'permanent_invigilator': {'role_display': 'Permanent Invigilator', 'rate': manual_rates['permanent_invigilator_rate'], 'unit': 'shift', 'eligible_prep_close': True},
+        'assistant_permanent_invigilator': {'role_display': 'Assistant Permanent Invigilator', 'rate': manual_rates['assistant_permanent_invigilator_rate'], 'unit': 'shift', 'eligible_prep_close': False},
+        'invigilator': {'role_display': 'Invigilator', 'rate': manual_rates['invigilator_rate'], 'unit': 'shift', 'eligible_prep_close': False},
+    }
+
+    # Define rates for Class 3 and 4 workers (per student, applied to total students)
+    class_worker_rates = {
+        'class_3_worker': {'role_display': 'Class 3 Worker', 'rate_per_student': manual_rates['class_3_worker_rate_per_student']},
+        'class_4_worker': {'role_display': 'Class 4 Worker', 'rate_per_student': manual_rates['class_4_worker_rate_per_student']},
+    }
+
+    # Create a unified list of all assigned personnel and their roles for easier iteration
+    unified_assignments = []
+
+    # Collect unique Class 3 and Class 4 workers for overall remuneration calculation
+    unique_class_3_workers = set()
+    unique_class_4_workers = set()
+
+    # Process shift assignments
+    for index, row in shift_assignments_df.iterrows():
+        current_date = row['date']
+        current_shift = row['shift']
+
+        for role_col in remuneration_rules.keys():
+            if role_col in row and isinstance(row[role_col], list):
+                for person in row[role_col]:
+                    unified_assignments.append({
+                        'Name': person,
+                        'Role_Key': role_col,
+                        'Date': current_date,
+                        'Shift': current_shift,
+                        'Source': 'shift_assignments'
+                    })
+        
+        # Collect unique Class 3 and 4 workers
+        if 'class_3_worker' in row and isinstance(row['class_3_worker'], list):
+            unique_class_3_workers.update(row['class_3_worker'])
+        if 'class_4_worker' in row and isinstance(row['class_4_worker'], list):
+            unique_class_4_workers.update(row['class_4_worker'])
+
+    # Process room invigilator assignments
+    for index, row in room_invigilator_assignments_df.iterrows():
+        current_date = row['date']
+        current_shift = row['shift']
+        invigilators_list = row['invigilators']
+
+        for invigilator in invigilators_list:
+            is_assigned_higher_role = False
+            for assignment in unified_assignments:
+                if (assignment['Name'] == invigilator and
+                    assignment['Date'] == current_date and
+                    assignment['Shift'] == current_shift and
+                    assignment['Role_Key'] != 'invigilator'):
+                    is_assigned_higher_role = True
+                    break
+            
+            if not is_assigned_higher_role:
+                unified_assignments.append({
+                    'Name': invigilator,
+                    'Role_Key': 'invigilator',
+                    'Date': current_date,
+                    'Shift': current_shift,
+                    'Source': 'room_invigilator_assignments'
+                })
+
+    # Now calculate remuneration for all entries in unified_assignments
+    for assignment in unified_assignments:
+        name = assignment['Name']
+        role_key = assignment['Role_Key']
+        date = assignment['Date']
+        shift = assignment['Shift']
+
+        # Base remuneration for the shift
+        base_rem_for_shift = remuneration_rules[role_key]['rate']
+        
+        # Regular conveyance (only for Evening shifts)
+        conveyance = manual_rates['conveyance_rate'] if shift == 'Evening' else 0
+
+        remuneration_data_detailed_raw.append({
+            'Name': name,
+            'Role_Key': role_key,
+            'Role_Display': remuneration_rules[role_key]['role_display'],
+            'Date': date,
+            'Shift': shift,
+            'Base_Remuneration_Per_Shift': base_rem_for_shift,
+            'Conveyance': conveyance,
+            'Total_Shift_Remuneration': base_rem_for_shift + conveyance
+        })
+    
+    df_detailed_remuneration = pd.DataFrame(remuneration_data_detailed_raw)
+
+    # --- Generate Individual Bills ---
+    individual_bills = []
+    unique_person_roles = df_detailed_remuneration[['Name', 'Role_Display', 'Role_Key']].drop_duplicates()
+
+    for idx, row in unique_person_roles.iterrows():
+        name = row['Name']
+        role_display = row['Role_Display']
+        role_key = row['Role_Key']
+
+        person_data = df_detailed_remuneration[
+            (df_detailed_remuneration['Name'] == name) &
+            (df_detailed_remuneration['Role_Display'] == role_display)
+        ].copy()
+
+        # Group dates by month for display
+        duty_dates_str = ""
+        if not person_data.empty:
+            person_data = person_data.sort_values(by='Date')
+            grouped_dates = person_data.groupby(person_data['Date'].dt.to_period('M'))['Date'].apply(lambda x: sorted(x.dt.day.tolist()))
+            
+            date_parts = []
+            for period, days in grouped_dates.items():
+                month_name = period.strftime('%b')
+                year = period.year
+                days_str = ", ".join(map(str, days))
+                date_parts.append(f"{month_name} - {days_str}")
+            
+            if date_parts:
+                duty_dates_str = ", ".join(date_parts) + f" {person_data['Date'].min().year}"
+
+        total_morning_shifts = len(person_data[person_data['Shift'] == 'Morning'])
+        total_evening_shifts = len(person_data[person_data['Shift'] == 'Evening'])
+        
+        shift_summary_str = ""
+        if total_morning_shifts > 0:
+            shift_summary_str += f"Morning: {total_morning_shifts}"
+        if total_evening_shifts > 0:
+            if shift_summary_str: shift_summary_str += ", "
+            shift_summary_str += f"Evening: {total_evening_shifts}"
+        if not shift_summary_str: shift_summary_str = "N/A"
+
+        total_shifts = total_morning_shifts + total_evening_shifts
+        rate_in_rs = remuneration_rules[role_key]['rate'] if role_key in remuneration_rules else 0
+
+        # Sum remuneration components
+        total_base_remuneration = person_data['Base_Remuneration_Per_Shift'].sum()
+        total_conveyance = person_data['Conveyance'].sum()
+        
+        # Calculate preparation and closing day remuneration
+        total_prep_remuneration = 0
+        total_closing_remuneration = 0
+        total_holiday_conveyance = 0
+        
+        # Check if this person is eligible and assigned prep/closing days
+        if remuneration_rules[role_key]['eligible_prep_close']:
+            person_assignments = prep_closing_assignments.get(name, {})
+            
+            # Preparation days
+            prep_days = person_assignments.get('prep_days', [])
+            total_prep_remuneration = len(prep_days) * rate_in_rs
+            
+            # Closing days
+            closing_days = person_assignments.get('closing_days', [])
+            total_closing_remuneration = len(closing_days) * rate_in_rs
+            
+            # Holiday conveyance for prep/closing days that are holidays
+            all_assigned_days = prep_days + closing_days
+            holiday_assigned_days = [day for day in all_assigned_days if day in holiday_dates]
+            total_holiday_conveyance = len(holiday_assigned_days) * manual_rates['holiday_conveyance_allowance_rate']
+
+        grand_total_amount = total_base_remuneration + total_conveyance + total_prep_remuneration + total_closing_remuneration + total_holiday_conveyance
+
+        individual_bills.append({
+            'SN': len(individual_bills) + 1,
+            'Name (with role)': f"{name} ({role_display})",
+            'Duty dates': duty_dates_str,
+            'Shift (morning/evening)': shift_summary_str,
+            'Total shifts (morning/evening)': total_shifts,
+            'Rate in Rs': rate_in_rs,
+            'Total Remuneration in Rs': total_base_remuneration,
+            'Total Conveyance (in evening shift)': total_conveyance,
+            'Preparation Day Remuneration': total_prep_remuneration,
+            'Closing Day Remuneration': total_closing_remuneration,
+            'Total Holiday Conveyance Added': total_holiday_conveyance,
+            'Total amount in Rs': grand_total_amount,
+            'Signature': ''
+        })
+
+    df_individual_bills = pd.DataFrame(individual_bills)
+
+    # --- Generate Role-wise Summary Matrix ---
+    role_summary_matrix = []
+    
+    for role_key, rule in remuneration_rules.items():
+        role_df = df_detailed_remuneration[df_detailed_remuneration['Role_Key'] == role_key]
+        
+        if not role_df.empty:
+            total_shifts_count = len(role_df)
+            total_base_rem = role_df['Base_Remuneration_Per_Shift'].sum()
+            total_conveyance = role_df['Conveyance'].sum()
+            
+            # Calculate total prep/closing remuneration for this role
+            total_prep_added = 0
+            total_closing_added = 0
+            total_holiday_conveyance = 0
+            
+            if rule['eligible_prep_close']:
+                unique_names = role_df['Name'].unique()
+                for name in unique_names:
+                    person_assignments = prep_closing_assignments.get(name, {})
+                    
+                    prep_days = person_assignments.get('prep_days', [])
+                    closing_days = person_assignments.get('closing_days', [])
+                    total_prep_added += len(prep_days) * rule['rate']
+                    total_closing_added += len(closing_days) * rule['rate']
+                    
+                    # Holiday conveyance
+                    all_assigned_days = prep_days + closing_days
+                    holiday_assigned_days = [day for day in all_assigned_days if day in holiday_dates]
+                    total_holiday_conveyance += len(holiday_assigned_days) * manual_rates['holiday_conveyance_allowance_rate']
+            
+            grand_total = total_base_rem + total_conveyance + total_prep_added + total_closing_added + total_holiday_conveyance
+
+            role_summary_matrix.append({
+                'SN': len(role_summary_matrix) + 1,
+                'Name (with role)': rule['role_display'],
+                'Duty dates': '',
+                'Shift (morning/evening)': '',
+                'Total shifts (morning/evening)': total_shifts_count,
+                'Rate in Rs': rule['rate'],
+                'Total Remuneration in Rs': total_base_rem,
+                'Total Conveyance (in evening shift)': total_conveyance,
+                'Preparation Day Remuneration': total_prep_added,
+                'Closing Day Remuneration': total_closing_added,
+                'Total Holiday Conveyance Added': total_holiday_conveyance,
+                'Total amount in Rs': grand_total,
+                'Signature': ''
+            })
+    
+    df_role_summary_matrix = pd.DataFrame(role_summary_matrix)
+
+    # --- Generate Class 3 and Class 4 Worker Bills ---
+    class_3_4_final_bills = []
+    total_unique_students_across_all_exams = assigned_seats_df['Roll Number'].nunique()
+
+    # Calculate remuneration for Class 3 workers
+    if unique_class_3_workers:
+        class_3_total_fixed_amount = total_unique_students_across_all_exams * class_worker_rates['class_3_worker']['rate_per_student']
+        num_class_3_workers = len(unique_class_3_workers)
+        rem_per_class_3_worker = class_3_total_fixed_amount / num_class_3_workers
+
+        for sn, worker_name in enumerate(sorted(list(unique_class_3_workers))):
+            class_3_4_final_bills.append({
+                'S.N.': len(class_3_4_final_bills) + 1,
+                'Name': worker_name,
+                'Role': class_worker_rates['class_3_worker']['role_display'],
+                'Total Students (Center-wide)': total_unique_students_across_all_exams,
+                'Rate per Student (for category)': class_worker_rates['class_3_worker']['rate_per_student'],
+                'Total Remuneration for Category (Rs.)': class_3_total_fixed_amount,
+                'Number of Workers in Category': num_class_3_workers,
+                'Remuneration per Worker in Rs.': rem_per_class_3_worker,
+                'Signature of Receiver': ''
+            })
+
+    # Calculate remuneration for Class 4 workers
+    if unique_class_4_workers:
+        class_4_total_fixed_amount = total_unique_students_across_all_exams * class_worker_rates['class_4_worker']['rate_per_student']
+        num_class_4_workers = len(unique_class_4_workers)
+        rem_per_class_4_worker = class_4_total_fixed_amount / num_class_4_workers
+
+        for sn, worker_name in enumerate(sorted(list(unique_class_4_workers))):
+            class_3_4_final_bills.append({
+                'S.N.': len(class_3_4_final_bills) + 1,
+                'Name': worker_name,
+                'Role': class_worker_rates['class_4_worker']['role_display'],
+                'Total Students (Center-wide)': total_unique_students_across_all_exams,
+                'Rate per Student (for category)': class_worker_rates['class_4_worker']['rate_per_student'],
+                'Total Remuneration for Category (Rs.)': class_4_total_fixed_amount,
+                'Number of Workers in Category': num_class_4_workers,
+                'Remuneration per Worker in Rs.': rem_per_class_4_worker,
+                'Signature of Receiver': ''
+            })
+
+    df_class_3_4_final_bills = pd.DataFrame(class_3_4_final_bills)
+    
+    return df_individual_bills, df_role_summary_matrix, df_class_3_4_final_bills
+
+def add_total_row(df):
+    """Add a total row to the dataframe"""
+    if df.empty:
+        return df
+    
+    total_row = {}
+    for col in df.columns:
+        if col in ['SN', 'S.N.']:
+            total_row[col] = 'TOTAL'
+        elif col in ['Name (with role)', 'Name', 'Role', 'Duty dates', 'Shift (morning/evening)', 'Signature', 'Signature of Receiver']:
+            total_row[col] = ''
+        elif df[col].dtype in ['int64', 'float64']:
+            total_row[col] = df[col].sum()
+        else:
+            total_row[col] = ''
+    
+    total_df = pd.DataFrame([total_row])
+    return pd.concat([df, total_df], ignore_index=True)
 
 # Main app
 st.title("Government Law College, Morena (M.P.) Examination Management System")
@@ -1770,7 +2146,7 @@ if menu == "Student View":
     ])
 
     if option == "Search by Roll Number and Date":
-        roll = st.text_input("Enter Roll Number")
+        roll = st.text_input("Enter Roll Number", max_chars=9)
         date_input = st.date_input("Enter Exam Date", value=datetime.date.today())
         if st.button("Search"):
             if sitting_plan.empty or timetable.empty:
@@ -1821,27 +2197,7 @@ elif menu == "Admin Panel":
         # Load data here, inside the successful login block
         sitting_plan, timetable, assigned_seats_df = load_data()
 
-        # File Upload Section
-        st.subheader("📤 Upload Data Files")
-        st.info(f"Upload your '{SITTING_PLAN_FILE}' and '{TIMETABLE_FILE}' CSV files here. These files are essential for most features.")
         
-        uploaded_sitting = st.file_uploader(f"Upload {SITTING_PLAN_FILE}", type=["csv"], key="upload_sitting_csv")
-        if uploaded_sitting:
-            success, msg = save_uploaded_file(uploaded_sitting, SITTING_PLAN_FILE)
-            if success:
-                st.success(f"{SITTING_PLAN_FILE} uploaded successfully.")
-                sitting_plan, timetable, assigned_seats_df = load_data() # Reload data after successful upload
-            else:
-                st.error(msg)
-
-        uploaded_timetable = st.file_uploader(f"Upload {TIMETABLE_FILE}", type=["csv"], key="upload_timetable_csv")
-        if uploaded_timetable:
-            success, msg = save_uploaded_file(uploaded_timetable, TIMETABLE_FILE)
-            if success:
-                st.success(f"{TIMETABLE_FILE} uploaded successfully.")
-                sitting_plan, timetable, assigned_seats_df = load_data() # Reload data after successful upload
-            else:
-                st.error(msg)
         
         st.markdown("---")
         st.subheader("Current Data Previews")
@@ -1876,6 +2232,7 @@ elif menu == "Admin Panel":
             "Room Occupancy Report", # New option
             "Room Chart Report", # New option for room chart
             "Data Processing & Reports",
+            "Remuneration Bill Generation",
             "Report Panel"
         ])
 
@@ -2431,6 +2788,169 @@ elif menu == "Admin Panel":
 
         elif admin_option == "Room Occupancy Report": # New Room Occupancy Report section
             display_room_occupancy_report(sitting_plan, assigned_seats_df, timetable)
+        
+        elif admin_option == "Remuneration Bill Generation":
+            st.subheader("💰 Remuneration Bill Generation")
+            st.info("Calculate remuneration for exam team members based on their assignments.")
+
+            # Load necessary dataframes
+            shift_assignments_df = load_shift_assignments()
+            room_invigilator_assignments_df = load_room_invigilator_assignments()
+            # Ensure 'Date' column is datetime for sorting and grouping in calculate_remuneration
+            if 'date' in shift_assignments_df.columns:
+                shift_assignments_df['date'] = pd.to_datetime(shift_assignments_df['date'], format='%d-%m-%Y', errors='coerce')
+            if 'date' in room_invigilator_assignments_df.columns:
+                room_invigilator_assignments_df['date'] = pd.to_datetime(room_invigilator_assignments_df['date'], format='%d-%m-%Y', errors='coerce')
+
+            # Load assigned_seats_df for Class 3/4 worker calculation
+            _, _, assigned_seats_df_for_remuneration = load_data()
+            # Load timetable for date parsing in duty dates
+            _, timetable_df_for_remuneration, _ = load_data()
+
+
+            if shift_assignments_df.empty and room_invigilator_assignments_df.empty:
+                st.warning("No shift or room invigilator assignments found. Please make assignments first.")
+                st.stop()
+
+            st.markdown("---")
+            st.subheader("Manual Remuneration Rates (per shift/day)")
+
+            # Define default rates and allow user to input
+            manual_rates = {
+                'senior_center_superintendent_rate': st.number_input("Senior Center Superintendent Rate (Rs.)", min_value=0, value=1500, key="scs_rate"),
+                'center_superintendent_rate': st.number_input("Center Superintendent Rate (Rs.)", min_value=0, value=1200, key="cs_rate"),
+                'assistant_center_superintendent_rate': st.number_input("Assistant Center Superintendent Rate (Rs.)", min_value=0, value=1000, key="acs_rate"),
+                'permanent_invigilator_rate': st.number_input("Permanent Invigilator Rate (Rs.)", min_value=0, value=800, key="pi_rate"),
+                'assistant_permanent_invigilator_rate': st.number_input("Assistant Permanent Invigilator Rate (Rs.)", min_value=0, value=700, key="api_rate"),
+                'invigilator_rate': st.number_input("Invigilator Rate (Rs.)", min_value=0, value=600, key="inv_rate"),
+                'conveyance_rate': st.number_input("Conveyance Rate (Evening Shift) (Rs.)", min_value=0, value=100, key="conveyance_rate"),
+                'class_3_worker_rate_per_student': st.number_input("Class 3 Worker Rate (per student) (Rs.)", min_value=0.0, value=5.0, key="c3_rate"),
+                'class_4_worker_rate_per_student': st.number_input("Class 4 Worker Rate (per student) (Rs.)", min_value=0.0, value=3.0, key="c4_rate"),
+                'holiday_conveyance_allowance_rate': st.number_input("Holiday Conveyance Allowance (Rs.)", min_value=0, value=150, key="holiday_conveyance_rate")
+            }
+
+            st.markdown("---")
+            st.subheader("Preparation and Closing Day Assignments")
+            st.info("Specify preparation and closing days for eligible staff. These days will also be checked for holidays for additional conveyance.")
+
+            all_eligible_members = []
+            # Collect all unique names from shift assignments for eligible roles
+            for _, row in shift_assignments_df.iterrows():
+                for role_col in ['senior_center_superintendent', 'center_superintendent', 'assistant_center_superintendent', 'permanent_invigilator']:
+                    if role_col in row and isinstance(row[role_col], list):
+                        all_eligible_members.extend(row[role_col])
+            all_eligible_members = sorted(list(set(all_eligible_members))) # Get unique names
+
+            prep_closing_assignments = {}
+            if all_eligible_members:
+                for member in all_eligible_members:
+                    st.markdown(f"**{member}**")
+                    prep_days_input = st.text_input(f"Preparation Days for {member} (comma-separated DD-MM-YYYY dates)", key=f"{member}_prep_days")
+                    closing_days_input = st.text_input(f"Closing Days for {member} (comma-separated DD-MM-YYYY dates)", key=f"{member}_closing_days")
+
+                    prep_days_list = [d.strip() for d in prep_days_input.split(',') if d.strip()]
+                    closing_days_list = [d.strip() for d in closing_days_input.split(',') if d.strip()]
+                    
+                    # Basic date format validation
+                    valid_prep_days = []
+                    for d in prep_days_list:
+                        try:
+                            datetime.datetime.strptime(d, '%d-%m-%Y')
+                            valid_prep_days.append(d)
+                        except ValueError:
+                            st.warning(f"Invalid date format for {d} in preparation days for {member}. Please use DD-MM-YYYY.")
+                    
+                    valid_closing_days = []
+                    for d in closing_days_list:
+                        try:
+                            datetime.datetime.strptime(d, '%d-%m-%Y')
+                            valid_closing_days.append(d)
+                        except ValueError:
+                            st.warning(f"Invalid date format for {d} in closing days for {member}. Please use DD-MM-YYYY.")
+
+                    prep_closing_assignments[member] = {
+                        'prep_days': valid_prep_days,
+                        'closing_days': valid_closing_days
+                    }
+            else:
+                st.info("No eligible team members found for preparation/closing day assignments.")
+
+            st.markdown("---")
+            st.subheader("Holiday Dates for Conveyance Allowance")
+            holiday_dates_input = st.text_input("Enter Holiday Dates (comma-separated DD-MM-YYYY dates)", key="holiday_dates_input")
+            holiday_dates = [d.strip() for d in holiday_dates_input.split(',') if d.strip()]
+            
+            valid_holiday_dates = []
+            for d in holiday_dates:
+                try:
+                    datetime.datetime.strptime(d, '%d-%m-%Y')
+                    valid_holiday_dates.append(d)
+                except ValueError:
+                    st.warning(f"Invalid date format for {d} in holiday dates. Please use DD-MM-YYYY.")
+            holiday_dates = valid_holiday_dates
+
+
+            if st.button("Generate Remuneration Bills"):
+                if shift_assignments_df.empty:
+                    st.warning("Shift assignments data is required to calculate remuneration.")
+                elif assigned_seats_df_for_remuneration.empty:
+                    st.warning("Assigned seats data is required to calculate remuneration for Class 3/4 workers.")
+                else:
+                    with st.spinner("Calculating remuneration..."):
+                        df_individual_bills, df_role_summary_matrix, df_class_3_4_final_bills = calculate_remuneration(
+                            shift_assignments_df,
+                            room_invigilator_assignments_df,
+                            timetable_df_for_remuneration, # Pass timetable for date parsing
+                            assigned_seats_df_for_remuneration,
+                            manual_rates,
+                            prep_closing_assignments,
+                            holiday_dates
+                        )
+
+                        st.markdown("### Individual Remuneration Bills")
+                        if not df_individual_bills.empty:
+                            df_individual_bills_with_total = add_total_row(df_individual_bills)
+                            st.dataframe(df_individual_bills_with_total, use_container_width=True)
+                            csv_individual = df_individual_bills_with_total.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="Download Individual Bills as CSV",
+                                data=csv_individual,
+                                file_name="individual_remuneration_bills.csv",
+                                mime="text/csv",
+                            )
+                        else:
+                            st.info("No individual bills generated.")
+
+                        st.markdown("### Role-wise Summary Matrix")
+                        if not df_role_summary_matrix.empty:
+                            df_role_summary_matrix_with_total = add_total_row(df_role_summary_matrix)
+                            st.dataframe(df_role_summary_matrix_with_total, use_container_width=True)
+                            csv_role_summary = df_role_summary_matrix_with_total.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="Download Role-wise Summary as CSV",
+                                data=csv_role_summary,
+                                file_name="role_wise_remuneration_summary.csv",
+                                mime="text/csv",
+                            )
+                        else:
+                            st.info("No role-wise summary generated.")
+
+                        st.markdown("### Class 3 & Class 4 Worker Bills")
+                        if not df_class_3_4_final_bills.empty:
+                            df_class_3_4_final_bills_with_total = add_total_row(df_class_3_4_final_bills)
+                            st.dataframe(df_class_3_4_final_bills_with_total, use_container_width=True)
+                            csv_class_workers = df_class_3_4_final_bills_with_total.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="Download Class 3 & 4 Worker Bills as CSV",
+                                data=csv_class_workers,
+                                file_name="class_3_4_worker_remuneration.csv",
+                                mime="text/csv",
+                            )
+                        else:
+                            st.info("No Class 3 & 4 worker bills generated.")
+
+
+        
 
         elif admin_option == "Room Chart Report": # New Room Chart Report section
             st.subheader("📄 Room Chart Report")
@@ -2632,8 +3152,8 @@ elif menu == "Centre Superintendent Panel":
                 selected_assist_cs = st.multiselect("Assistant Center Superintendent (Max 3)", all_team_members, default=loaded_assist_cs, max_selections=3)
                 selected_perm_inv = st.multiselect("Permanent Invigilator (Max 1)", all_team_members, default=loaded_perm_inv, max_selections=1)
                 selected_assist_perm_inv = st.multiselect("Assistant Permanent Invigilator (Max 5)", all_team_members, default=loaded_assist_perm_inv, max_selections=5)
-                selected_class_3 = st.multiselect("class_3_worker (Max 10)", all_team_members, default=loaded_class_3, max_selections=10)
-                selected_class_4 = st.multiselect("class_4_worker (Max 10)", all_team_members, default=loaded_class_4, max_selections=10)
+                selected_class_3 = st.multiselect("Class 3 Worker (Max 10)", all_team_members, default=loaded_class_3, max_selections=10)
+                selected_class_4 = st.multiselect("Class 4 Worker (Max 10)", all_team_members, default=loaded_class_4, max_selections=10)
 
 
                 if st.button("Save Shift Assignments"):
