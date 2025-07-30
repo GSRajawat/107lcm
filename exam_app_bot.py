@@ -1819,7 +1819,7 @@ def display_report_panel():
             st.info("No UFM cases in the filtered reports.")
 # --- Remuneration Calculation Functions (from bill.py) ---
 def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df, timetable_df, assigned_seats_df,
-                            manual_rates, prep_closing_assignments, holiday_dates):
+                            manual_rates, prep_closing_assignments, holiday_dates, selected_classes_for_bill):
     """
     Calculates the remuneration for all team members based on assignments and rules,
     including individually selected preparation and closing days and holiday conveyance allowance.
@@ -1829,6 +1829,8 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     2. Conveyance only for evening shifts when both morning and evening worked on same day
     3. No conveyance for Senior CS on exam days
     4. Prep/closing assignments are role-specific to avoid duplicates
+    5. Base remuneration for shift-based roles is filtered by selected_classes_for_bill,
+       but conveyance and Senior CS daily rate are not.
     """
     remuneration_data_detailed_raw = []
     
@@ -1855,7 +1857,7 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     unique_class_3_workers = set()
     unique_class_4_workers = set()
 
-    # Process shift assignments
+    # Process shift assignments (all shifts, for conveyance and Senior CS daily rate)
     for index, row in shift_assignments_df.iterrows():
         current_date = row['date']
         current_shift = row['shift']
@@ -1877,7 +1879,7 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
         if 'class_4_worker' in row and isinstance(row['class_4_worker'], list):
             unique_class_4_workers.update(row['class_4_worker'])
 
-    # Process room invigilator assignments
+    # Process room invigilator assignments (all shifts, for conveyance)
     for index, row in room_invigilator_assignments_df.iterrows():
         current_date = row['date']
         current_shift = row['shift']
@@ -1908,25 +1910,28 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     # Find dates where each person worked both shifts (for conveyance eligibility)
     both_shift_dates = {}
     if not df_assignments.empty:
+        # Ensure 'Date' column is datetime for grouping
+        df_assignments['Date_dt'] = pd.to_datetime(df_assignments['Date'], format='%d-%m-%Y', errors='coerce')
         for name in df_assignments['Name'].unique():
             person_assignments = df_assignments[df_assignments['Name'] == name]
-            date_shift_counts = person_assignments.groupby(['Date', 'Role_Key'])['Shift'].nunique()
+            date_shift_counts = person_assignments.groupby(['Date_dt', 'Role_Key'])['Shift'].nunique()
             both_shift_dates[name] = {}
             
-            for (date, role), shift_count in date_shift_counts.items():
+            for (date_dt, role), shift_count in date_shift_counts.items():
                 if shift_count >= 2:  # Worked both morning and evening
                     if role not in both_shift_dates[name]:
                         both_shift_dates[name][role] = []
-                    both_shift_dates[name][role].append(date)
+                    both_shift_dates[name][role].append(date_dt.strftime('%d-%m-%Y')) # Store as string
 
     # Now calculate remuneration for all entries in unified_assignments
+    # This initial calculation includes ALL shifts, before class-wise filtering for base remuneration
     for assignment in unified_assignments:
         name = assignment['Name']
         role_key = assignment['Role_Key']
         date = assignment['Date']
         shift = assignment['Shift']
 
-        # Base remuneration for the shift
+        # Base remuneration for the shift (initially, assuming all shifts count)
         base_rem_for_shift = remuneration_rules[role_key]['rate']
         
         # NEW CONVEYANCE LOGIC: Only for evening shifts when both shifts worked on same day
@@ -1944,12 +1949,42 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             'Role_Display': remuneration_rules[role_key]['role_display'],
             'Date': date,
             'Shift': shift,
-            'Base_Remuneration_Per_Shift': base_rem_for_shift,
+            'Base_Remuneration_Per_Shift_Unfiltered': base_rem_for_shift, # Unfiltered base rate
             'Conveyance': conveyance,
-            'Total_Shift_Remuneration': base_rem_for_shift + conveyance
+            # 'Total_Shift_Remuneration' will be calculated later, after class filtering for base.
         })
     
     df_detailed_remuneration = pd.DataFrame(remuneration_data_detailed_raw)
+
+    # Merge with timetable to get class information for filtering
+    # Ensure 'Date', 'Shift', 'Paper Code' are string for merging
+    timetable_df['Date'] = timetable_df['Date'].astype(str)
+    timetable_df['Shift'] = timetable_df['Shift'].astype(str)
+    timetable_df['Paper Code'] = timetable_df['Paper Code'].astype(str)
+
+    df_detailed_remuneration['Date'] = df_detailed_remuneration['Date'].astype(str)
+    df_detailed_remuneration['Shift'] = df_detailed_remuneration['Shift'].astype(str)
+
+    # Need to link assignments to paper codes to get class info
+    # This is complex as assignment df doesn't directly have paper codes.
+    # We need to infer the paper/class for each shift worked by a person.
+    # The most robust way is to get all papers scheduled for that date/shift from the timetable.
+    
+    # For roles like invigilators, they might not be tied to a specific paper in `assigned_seats_df`.
+    # We need to map `Date` and `Shift` of the `df_detailed_remuneration` to `Class` from `timetable_df`.
+    
+    # Create a mapping of (Date, Shift) to unique classes for that session
+    session_classes_map = {}
+    for _, tt_row in timetable_df.iterrows():
+        date_shift_key = (str(tt_row['Date']), str(tt_row['Shift']))
+        if date_shift_key not in session_classes_map:
+            session_classes_map[date_shift_key] = set()
+        session_classes_map[date_shift_key].add(str(tt_row['Class']).strip())
+
+    # Add a 'Classes_in_Session' column to df_detailed_remuneration
+    df_detailed_remuneration['Classes_in_Session'] = df_detailed_remuneration.apply(
+        lambda row: list(session_classes_map.get((row['Date'], row['Shift']), set())), axis=1
+    )
 
     # --- Generate Individual Bills ---
     individual_bills = []
@@ -1968,8 +2003,9 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
         # Group dates by month for display
         duty_dates_str = ""
         if not person_data.empty:
-            person_data = person_data.sort_values(by='Date')
-            grouped_dates = person_data.groupby(person_data['Date'].dt.to_period('M'))['Date'].apply(lambda x: sorted(x.dt.day.tolist()))
+            person_data['Date_dt'] = pd.to_datetime(person_data['Date'], format='%d-%m-%Y', errors='coerce')
+            person_data = person_data.sort_values(by='Date_dt')
+            grouped_dates = person_data.groupby(person_data['Date_dt'].dt.to_period('M'))['Date_dt'].apply(lambda x: sorted(x.dt.day.tolist()))
             
             date_parts = []
             for period, days in grouped_dates.items():
@@ -1979,7 +2015,7 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
                 date_parts.append(f"{month_name} - {days_str}")
             
             if date_parts:
-                duty_dates_str = ", ".join(date_parts) + f" {person_data['Date'].min().year}"
+                duty_dates_str = ", ".join(date_parts) + f" {person_data['Date_dt'].min().year}"
 
         total_morning_shifts = len(person_data[person_data['Shift'] == 'Morning'])
         total_evening_shifts = len(person_data[person_data['Shift'] == 'Evening'])
@@ -1996,15 +2032,22 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
         rate_in_rs = remuneration_rules[role_key]['rate'] if role_key in remuneration_rules else 0
 
         # UPDATED REMUNERATION CALCULATION
+        total_base_remuneration = 0
         if role_key == 'senior_center_superintendent':
-            # Senior CS: Rs. 200 per day (not per shift)
+            # Senior CS: Rs. 200 per day (not per shift) - NOT filtered by selected classes
             unique_dates = person_data['Date'].nunique()
             total_base_remuneration = unique_dates * rate_in_rs
         else:
-            # Others: per shift
-            total_base_remuneration = person_data['Base_Remuneration_Per_Shift'].sum()
+            # Other roles (per shift): Filter base remuneration by selected classes
+            for _, p_row in person_data.iterrows():
+                # Check if any class in this session is among the selected classes
+                session_classes = [c.strip() for c in p_row['Classes_in_Session']]
+                
+                # If selected_classes_for_bill is empty, it means "all classes" are selected
+                if not selected_classes_for_bill or any(cls in selected_classes_for_bill for cls in session_classes):
+                    total_base_remuneration += p_row['Base_Remuneration_Per_Shift_Unfiltered']
         
-        total_conveyance = person_data['Conveyance'].sum()
+        total_conveyance = person_data['Conveyance'].sum() # Conveyance is NOT filtered by selected classes
         
         # Calculate preparation and closing day remuneration - ROLE SPECIFIC
         total_prep_remuneration = 0
@@ -2061,14 +2104,19 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             total_shifts_count = len(role_df)
             
             # UPDATED REMUNERATION CALCULATION FOR SUMMARY
+            total_base_rem = 0
             if role_key == 'senior_center_superintendent':
-                # Senior CS: Count unique person-days, not shifts
+                # Senior CS: Count unique person-days, not shifts - NOT filtered by selected classes
                 person_days = role_df.groupby('Name')['Date'].nunique().sum()
                 total_base_rem = person_days * rule['rate']
             else:
-                total_base_rem = role_df['Base_Remuneration_Per_Shift'].sum()
-            
-            total_conveyance = role_df['Conveyance'].sum()
+                # Other roles (per shift): Filter base remuneration by selected classes for summary
+                for _, r_row in role_df.iterrows():
+                    session_classes = [c.strip() for c in r_row['Classes_in_Session']]
+                    if not selected_classes_for_bill or any(cls in selected_classes_for_bill for cls in session_classes):
+                        total_base_rem += r_row['Base_Remuneration_Per_Shift_Unfiltered']
+
+            total_conveyance = role_df['Conveyance'].sum() # Conveyance is NOT filtered by selected classes
             
             # Calculate total prep/closing remuneration for this role - ROLE SPECIFIC
             total_prep_added = 0
@@ -2112,13 +2160,14 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
 
     # --- Generate Class 3 and Class 4 Worker Bills ---
     class_3_4_final_bills = []
+    # Class 3/4 worker remuneration is based on total unique students across all exams, NOT filtered by class
     total_unique_students_across_all_exams = assigned_seats_df['Roll Number'].nunique()
 
     # Calculate remuneration for Class 3 workers
     if unique_class_3_workers:
         class_3_total_fixed_amount = total_unique_students_across_all_exams * class_worker_rates['class_3_worker']['rate_per_student']
         num_class_3_workers = len(unique_class_3_workers)
-        rem_per_class_3_worker = class_3_total_fixed_amount / num_class_3_workers
+        rem_per_class_3_worker = class_3_total_fixed_amount / num_class_3_workers if num_class_3_workers > 0 else 0
 
         for sn, worker_name in enumerate(sorted(list(unique_class_3_workers))):
             class_3_4_final_bills.append({
@@ -2137,7 +2186,7 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     if unique_class_4_workers:
         class_4_total_fixed_amount = total_unique_students_across_all_exams * class_worker_rates['class_4_worker']['rate_per_student']
         num_class_4_workers = len(unique_class_4_workers)
-        rem_per_class_4_worker = class_4_total_fixed_amount / num_class_4_workers
+        rem_per_class_4_worker = class_4_total_fixed_amount / num_class_4_workers if num_class_4_workers > 0 else 0
 
         for sn, worker_name in enumerate(sorted(list(unique_class_4_workers))):
             class_3_4_final_bills.append({
@@ -2174,6 +2223,63 @@ def add_total_row(df):
     
     total_df = pd.DataFrame([total_row])
     return pd.concat([df, total_df], ignore_index=True)
+
+def save_bills_to_excel(individual_bills_df, role_summary_df, class_workers_df, filename="remuneration_bills.xlsx"):
+    """
+    Saves the three remuneration dataframes into a single Excel file with multiple sheets.
+    """
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        if not individual_bills_df.empty:
+            individual_bills_df.to_excel(writer, sheet_name='Individual Bills', index=False)
+            # Auto-adjust column width for individual bills
+            worksheet = writer.sheets['Individual Bills']
+            for column in worksheet.columns:
+                max_length = 0
+                column_name = column[0].column_letter # Get the column name
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                worksheet.column_dimensions[column_name].width = adjusted_width
+
+        if not role_summary_df.empty:
+            role_summary_df.to_excel(writer, sheet_name='Role Summary', index=False)
+            # Auto-adjust column width for role summary
+            worksheet = writer.sheets['Role Summary']
+            for column in worksheet.columns:
+                max_length = 0
+                column_name = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                worksheet.column_dimensions[column_name].width = adjusted_width
+
+        if not class_workers_df.empty:
+            class_workers_df.to_excel(writer, sheet_name='Class Workers', index=False)
+            # Auto-adjust column width for class workers
+            worksheet = writer.sheets['Class Workers']
+            for column in worksheet.columns:
+                max_length = 0
+                column_name = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                worksheet.column_dimensions[column_name].width = adjusted_width
+    
+    output.seek(0)
+    return output, filename
 
 # Main app
 st.title("Government Law College, Morena (M.P.) Examination Management System")
@@ -2845,20 +2951,28 @@ elif menu == "Admin Panel":
             shift_assignments_df = load_shift_assignments()
             room_invigilator_assignments_df = load_room_invigilator_assignments()
             # Ensure 'Date' column is datetime for sorting and grouping in calculate_remuneration
-            if 'date' in shift_assignments_df.columns:
-                shift_assignments_df['date'] = pd.to_datetime(shift_assignments_df['date'], format='%d-%m-%Y', errors='coerce')
-            if 'date' in room_invigilator_assignments_df.columns:
-                room_invigilator_assignments_df['date'] = pd.to_datetime(room_invigilator_assignments_df['date'], format='%d-%m-%Y', errors='coerce')
-
+            # The function itself will convert to datetime, here we just load
+            
             # Load assigned_seats_df for Class 3/4 worker calculation
             _, _, assigned_seats_df_for_remuneration = load_data()
-            # Load timetable for date parsing in duty dates
+            # Load timetable for date parsing in duty dates and for class filtering
             _, timetable_df_for_remuneration, _ = load_data()
-
 
             if shift_assignments_df.empty and room_invigilator_assignments_df.empty:
                 st.warning("No shift or room invigilator assignments found. Please make assignments first.")
                 st.stop()
+            
+            # Get unique classes from the timetable for multi-selection
+            all_classes_in_timetable = sorted(timetable_df_for_remuneration['Class'].dropna().astype(str).str.strip().unique().tolist())
+            
+            st.markdown("---")
+            st.subheader("Select Classes for Bill Generation")
+            st.info("Select specific classes to include in the remuneration calculation for shift-based roles. Double shift duty conveyance will still be considered for all shifts worked.")
+            selected_classes_for_bill = st.multiselect(
+                "Select Classes (leave empty for all classes)",
+                options=all_classes_in_timetable,
+                default=all_classes_in_timetable # Default to all classes selected
+            )
 
             st.markdown("---")
             st.subheader("Manual Remuneration Rates (per shift/day)")
@@ -2990,24 +3104,18 @@ elif menu == "Admin Panel":
                         df_individual_bills, df_role_summary_matrix, df_class_3_4_final_bills = calculate_remuneration(
                             shift_assignments_df,
                             room_invigilator_assignments_df,
-                            timetable_df_for_remuneration, # Pass timetable for date parsing
+                            timetable_df_for_remuneration, # Pass timetable for date parsing and class filtering
                             assigned_seats_df_for_remuneration,
                             manual_rates,
                             prep_closing_assignments,
-                            holiday_dates
+                            holiday_dates,
+                            selected_classes_for_bill # Pass selected classes
                         )
 
                         st.markdown("### Individual Remuneration Bills")
                         if not df_individual_bills.empty:
                             df_individual_bills_with_total = add_total_row(df_individual_bills)
                             st.dataframe(df_individual_bills_with_total, use_container_width=True)
-                            csv_individual = df_individual_bills_with_total.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="Download Individual Bills as CSV",
-                                data=csv_individual,
-                                file_name="individual_remuneration_bills.csv",
-                                mime="text/csv",
-                            )
                         else:
                             st.info("No individual bills generated.")
 
@@ -3015,13 +3123,6 @@ elif menu == "Admin Panel":
                         if not df_role_summary_matrix.empty:
                             df_role_summary_matrix_with_total = add_total_row(df_role_summary_matrix)
                             st.dataframe(df_role_summary_matrix_with_total, use_container_width=True)
-                            csv_role_summary = df_role_summary_matrix_with_total.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="Download Role-wise Summary as CSV",
-                                data=csv_role_summary,
-                                file_name="role_wise_remuneration_summary.csv",
-                                mime="text/csv",
-                            )
                         else:
                             st.info("No role-wise summary generated.")
 
@@ -3029,15 +3130,26 @@ elif menu == "Admin Panel":
                         if not df_class_3_4_final_bills.empty:
                             df_class_3_4_final_bills_with_total = add_total_row(df_class_3_4_final_bills)
                             st.dataframe(df_class_3_4_final_bills_with_total, use_container_width=True)
-                            csv_class_workers = df_class_3_4_final_bills_with_total.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="Download Class 3 & 4 Worker Bills as CSV",
-                                data=csv_class_workers,
-                                file_name="class_3_4_worker_remuneration.csv",
-                                mime="text/csv",
-                            )
                         else:
                             st.info("No Class 3 & 4 worker bills generated.")
+                        
+                        # Save and Download Bills
+                        if not df_individual_bills.empty or not df_role_summary_matrix.empty or not df_class_3_4_final_bills.empty:
+                            excel_file_buffer, excel_filename = save_bills_to_excel(
+                                df_individual_bills_with_total, 
+                                df_role_summary_matrix_with_total, 
+                                df_class_3_4_final_bills_with_total
+                            )
+                            st.download_button(
+                                label="Download All Remuneration Bills as Excel",
+                                data=excel_file_buffer,
+                                file_name=excel_filename,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            )
+                            st.success(f"Remuneration bills generated and ready for download as '{excel_filename}'.")
+                        else:
+                            st.warning("No bills were generated to save.")
+
 
         elif admin_option == "Room Chart Report": # New Room Chart Report section
             st.subheader("📄 Room Chart Report")
@@ -3361,7 +3473,7 @@ elif menu == "Centre Superintendent Panel":
                     available_sessions_assigned['Paper Code'] = available_sessions_assigned['Paper Code'].astype(str)
                     available_sessions_assigned['Paper Name'] = available_sessions_assigned['Paper Name'].astype(str)
 
-                    available_sessions_assigned['exam_session_id'] = \
+                    available_sessios_assigned['exam_session_id'] = \
                         available_sessions_assigned['Room Number'].astype(str).str.strip() + " - " + \
                         available_sessions_assigned['Paper Code'].apply(_format_paper_code) + " (" + \
                         available_sessions_assigned['Paper Name'].str.strip() + ")"
