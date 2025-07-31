@@ -3737,7 +3737,7 @@ def delete_file_app():
     st.title("File Deletion App")
     st.write("This app allows you to delete the 'abc.csv' file from the current directory.")
 
-    file_to_delete = "sitting_plan.csv"
+    file_to_delete = "timetable.csv"
 
     # Check if the file exists
     if os.path.exists(file_to_delete):
@@ -3756,4 +3756,3 @@ def delete_file_app():
 
 if __name__ == "__main__":
     delete_file_app()
-
