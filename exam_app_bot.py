@@ -649,35 +649,55 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
     return final_text_output, None, excel_output_data
 
 # New helper function based on pdftocsv.py's extract_metadata, but using "UNSPECIFIED" defaults
-def extract_metadata_from_pdf_text(text):
-    # Extract Class Group and Year like "BSC", "2YEAR"
-    class_match = re.search(r'([A-Z]+)\s*/?\s*(\d+SEM)', text)
-    class_val = f"{class_match.group(1)} {class_match.group(2)}" if class_match else "UNSPECIFIED_CLASS"
-    class_match = re.search(r'([A-Z]+)\s*/?\s*(\d+(SEM|YEAR))', text)
-    class_val = f"{class_match.group(1)} {class_match.group(2)}" if class_match else "UNSPECIFIED_CLASS"
-
-    # Detect mode/type: REGULAR, PRIVATE, ATKT, SUPP, EXR
-    mode_type = "UNSPECIFIED_MODE"
-    for keyword in ["REGULAR", "ATKT","SUPP", "EXR", "PRIVATE"]:
-        if keyword in text.upper():
-            mode_type = keyword
-            break
+def extract_metadata_from_pdf_text(text): 
+    # Extract Class Group and Year like "BSC", "2YEAR" 
+    class_match = re.search(r'([A-Z]+)\s*/?\s*(\d+(SEM|YEAR))', text) 
+    class_val = f"{class_match.group(1)} {class_match.group(2)}" if class_match else "UNSPECIFIED_CLASS" 
+ 
+    # Use regex to extract mode and type from the structured pattern
+    # Looking for pattern like "BA / 1YEAR / PRIVATE / SUPP / MAR-2025"
+    pattern_match = re.search(r'([A-Z]+)\s*/\s*(\d+(?:SEM|YEAR))\s*/\s*([A-Z]+)\s*/\s*([A-Z]+)\s*/\s*MAR-2025', text)
     
-    paper_code = re.search(r'Paper Code[:\s]*([\d]+)', text)
-    paper_code_val = _format_paper_code(paper_code.group(1)) if paper_code else "UNSPECIFIED_PAPER_CODE" # Use formatter
+    if pattern_match:
+        mode_type = pattern_match.group(3)  # Third element (PRIVATE/REGULAR)
+        type_type = pattern_match.group(4)  # Fourth element (SUPP/REGULAR/etc)
+    else:
+        # Fallback to your original logic but with better ordering
+        mode_type = "UNSPECIFIED_MODE" 
+        # Check for PRIVATE first since it's more specific
+        for keyword_mode in ["PRIVATE", "REGULAR"]: 
+            if keyword_mode in text.upper(): 
+                mode_type = keyword_mode 
+                break 
+                
+        type_type = "UNSPECIFIED_TYPE" 
+        # Check for more specific types first
+        for keyword_type in ["ATKT", "SUPP", "EXR", "REGULAR", "PRIVATE"]: 
+            if keyword_type in text.upper(): 
+                type_type = keyword_type 
+                break 
 
+    paper_code = re.search(r'Paper Code[:\s]*([A-Z0-9]+)', text, re.IGNORECASE)
+    paper_code_val = _format_paper_code(paper_code.group(1)) if paper_code else "UNSPECIFIED_PAPER_CODE" # Use formatter
+    
     paper_name = re.search(r'Paper Name[:\s]*(.+?)(?:\n|$)', text)
     paper_name_val = paper_name.group(1).strip() if paper_name else "UNSPECIFIED_PAPER_NAME"
-
-    return {
-        "class": class_val,
-        "mode": mode_type,
-        "type": mode_type, # Assuming type is same as mode
-        "room_number": "", # Always blank initially as per request
-        "seat_numbers": [""] * 10, # Always blank initially as per request
-        "paper_code": paper_code_val,
-        "paper_name": paper_name_val
+    
+    return { 
+        "class": class_val, 
+        "mode": mode_type, 
+        "type": type_type,  
+        "room_number": "", 
+        "seat_numbers": [""] * 10, 
+        "paper_code": paper_code_val, 
+        "paper_name": paper_name_val 
     }
+  
+
+
+
+
+
 
 # --- Integration of pdftocsv.py logic ---
 def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_timetable_path):
@@ -821,53 +841,54 @@ def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_
     if unique_exams_for_timetable:
         df_new_timetable_entries = pd.DataFrame(unique_exams_for_timetable).drop_duplicates().reset_index(drop=True)
 
-        # Load existing timetable data
-        existing_timetable_df = pd.DataFrame()
+        # Define expected structure
+        expected_columns = ["SN", "Date", "Shift", "Time", "Class", "Paper", "Paper Code", "Paper Name"]
+
+        # Load existing timetable if exists
         if os.path.exists(output_timetable_path):
             try:
                 existing_timetable_df = pd.read_csv(output_timetable_path)
                 existing_timetable_df.columns = existing_timetable_df.columns.str.strip()
                 if 'Paper Code' in existing_timetable_df.columns:
-                    existing_timetable_df['Paper Code'] = existing_timetable_df['Paper Code'].apply(_format_paper_code)
+                    existing_timetable_df['Paper Code'] = existing_timetable_df['Paper Code'].astype(str).str.strip()
             except Exception as e:
-                st.warning(f"Could not load existing timetable data for update: {e}. Starting fresh for timetable.")
-                existing_timetable_df = pd.DataFrame(columns=["SN", "Date", "Shift", "Time", "Class", "Paper", "Paper Code", "Paper Name"])
+                st.warning(f"Could not load existing timetable: {e}. Starting fresh.")
+                existing_timetable_df = pd.DataFrame(columns=expected_columns)
+        else:
+            existing_timetable_df = pd.DataFrame(columns=expected_columns)
 
-        # Ensure all columns are present in both DataFrames before concatenation
-        # Add missing columns to new_timetable_entries with NaN values
-        for col in existing_timetable_df.columns:
+        # Add missing columns to both DataFrames
+        for col in expected_columns:
             if col not in df_new_timetable_entries.columns:
                 df_new_timetable_entries[col] = pd.NA
-        
-        # Add missing columns to existing_timetable_df with NaN values
-        for col in df_new_timetable_entries.columns:
             if col not in existing_timetable_df.columns:
                 existing_timetable_df[col] = pd.NA
 
-        # Reorder columns to match existing_timetable_df before concatenation
-        df_new_timetable_entries = df_new_timetable_entries[existing_timetable_df.columns]
-        
-        combined_timetable_df = pd.concat([existing_timetable_df, df_new_timetable_entries], ignore_index=True)
-        
-        # Define columns for identifying unique timetable entries (Class, Paper, Paper Code, Paper Name)
-        timetable_subset_cols = ['Class', 'Paper', 'Paper Code', 'Paper Name']
+        # Reorder columns
+        df_new_timetable_entries = df_new_timetable_entries[expected_columns]
+        existing_timetable_df = existing_timetable_df[expected_columns]
 
-        # Filter timetable_subset_cols to only include columns actually present in the DataFrame
-        existing_timetable_subset_cols = [col for col in timetable_subset_cols if col in combined_timetable_df.columns]
+        # Concatenate and deduplicate using relevant fields
+        combined_df = pd.concat([existing_timetable_df, df_new_timetable_entries], ignore_index=True)
 
-        # Fill NaN values in the subset columns for consistent duplicate detection
-        combined_timetable_df_filled = combined_timetable_df.fillna('')
-        df_timetable_final = combined_timetable_df_filled.drop_duplicates(subset=existing_timetable_subset_cols, keep='first')
-        
-        # Re-index SN column after dropping duplicates
-        if "SN" in df_timetable_final.columns:
-            df_timetable_final["SN"] = range(1, len(df_timetable_final) + 1)
+        # Fields that define uniqueness of a timetable entry (excluding SN)
+        unique_fields = ["Date", "Shift", "Time", "Class", "Paper", "Paper Code", "Paper Name"]
 
+        # Remove duplicates based on content
+        df_timetable_final = combined_df.drop_duplicates(subset=unique_fields, keep='first').reset_index(drop=True)
+
+        # Reassign serial numbers
+        df_timetable_final["SN"] = range(1, len(df_timetable_final) + 1)
+
+        # Save final CSV
         df_timetable_final.to_csv(output_timetable_path, index=False)
-        st.success(f"Generated initial timetable based on sitting plan papers and updated to {output_timetable_path}. Please update dates, shifts, and times as needed.")
+        st.success(f"Timetable updated at {output_timetable_path}.")
+        return True, "Timetable deduplicated and saved successfully."
+    
     else:
-        st.warning("No unique exam details found to generate an initial timetable.")
-    return True, "PDF processing complete."
+        st.warning("No unique exam details found to generate timetable.")
+        return False, "No data to process."   
+    return True, "PDF processing complete."   
 
 
 # --- Integration of rasa_pdf.py logic ---
@@ -973,78 +994,94 @@ def generate_college_statistics(input_csv_path, output_csv_path):
         return False, f"Input file not found: {input_csv_path}. Please process attestation PDFs first."
 
     try:
+        # Load data
         df = pd.read_csv(input_csv_path, dtype={"Roll Number": str, "Enrollment Number": str})
 
-        # Data Cleaning and Preparation
+        # Basic cleaning
         df['College Name'] = df['College Name'].fillna('UNKNOWN').astype(str).str.strip().str.upper()
         df['Exam Name'] = df['Exam Name'].fillna('UNKNOWN').astype(str).str.strip().str.upper()
-        df['Paper 1 Code'] = df['Paper 1'].str.extract(r'\[(\d{5})\]').iloc[:, 0].fillna('UNKNOWN').apply(_format_paper_code)
-        
-        # Function to extract Class from Exam Name
-        def extract_class(exam_name):
+        df['Regular/Backlog'] = df['Regular/Backlog'].astype(str).str.strip().str.upper()
+
+        # Extract class group and year
+        def extract_class_group_and_year(exam_name):
             if pd.isna(exam_name):
-                return 'UNKNOWN'
-            exam_name_upper = str(exam_name).upper()
-            # More specific regex for classes like B.SC. III YEAR, B.A. II YEAR, M.A. (PREVIOUS)
-            class_match = re.search(r'\b(B\.\s*A\.|B\.\s*SC\.|B\.\s*COM\.|M\.\s*A\.|M\.\s*SC\.|M\.\s*COM\.)\s*(?:[IVXLCDM]+\s*YEAR|\(?[A-Z]+\)?)', exam_name_upper)
-            if class_match:
-                return class_match.group(0).strip()
-            # General pattern for Year (e.g., I YEAR, II YEAR, III YEAR)
-            year_match = re.search(r'\b([IVXLCDM]+)\s*YEAR\b', exam_name_upper)
-            if year_match:
-                return year_match.group(0).strip()
-            return 'UNKNOWN' # Default if no pattern matches
+                return "UNKNOWN", "UNKNOWN"
 
-        df['Class'] = df['Exam Name'].apply(extract_class)
+            exam_name = str(exam_name).upper().strip()
 
-        # Calculate total students per college, exam, class
-        college_exam_class_counts = df.groupby(['College Name', 'Exam Name', 'Class']).size().reset_index(name='Total Students')
+            # Match pattern like BCOM - Commerce [C032] - 1YEAR or BED - PLAIN[PLAIN] - 2SEM
+            match = re.match(r'^([A-Z]+)\s*-\s*.+\[\w+\]\s*-\s*(\d+(ST|ND|RD|TH)?(YEAR|SEM))$', exam_name)
+            if match:
+                class_group = match.group(1).strip()
+                year_or_sem = match.group(2).strip()
+                return class_group, year_or_sem
 
-        # Calculate statistics per paper code per college per exam (total students taking each paper)
-        # We need to pivot the papers first
-        paper_columns = [col for col in df.columns if 'Paper ' in col and 'Code' not in col]
+            # Fallback: try to extract roman numeral patterns like II YEAR
+            roman = re.search(r'\b([IVXLCDM]+)\s*(YEAR|SEM)\b', exam_name)
+            if roman:
+                return "UNKNOWN", roman.group(0).strip()
+
+            return "UNKNOWN", "UNKNOWN"
+
+
+
+        df[["Class Group", "Year"]] = df["Exam Name"].apply(lambda x: pd.Series(extract_class_group_and_year(x)))
         
-        # Melt the DataFrame to have one row per student-paper combination
-        df_melted_papers = df.melt(
-            id_vars=['College Name', 'Exam Name', 'Class', 'Roll Number'], 
-            value_vars=paper_columns, 
-            var_name='Paper_Col', 
-            value_name='Paper_Info'
-        ).dropna(subset=['Paper_Info'])
 
-        # Extract Paper Code and Paper Name from the melted 'Paper_Info'
-        df_melted_papers['Paper Code'] = df_melted_papers['Paper_Info'].str.extract(r'\[(\d{5})\]').iloc[:, 0].fillna('UNKNOWN').apply(_format_paper_code)
-        df_melted_papers['Paper Name'] = df_melted_papers['Paper_Info'].str.replace(r'\[\d{5}\]', '', regex=True).str.strip()
-        
-        # Aggregate paper counts
-        college_exam_paper_counts = df_melted_papers.groupby(['College Name', 'Exam Name', 'Class', 'Paper Code', 'Paper Name']).size().reset_index(name='Students Taking Paper')
+        # Group definitions
+        class_groups = sorted(df["Class Group"].dropna().unique())
+        college_list = sorted(df["College Name"].dropna().unique())
 
-        # Combine results
-        # Merge total students with paper-wise student counts
-        combined_stats = pd.merge(
-            college_exam_paper_counts, 
-            college_exam_class_counts, 
-            on=['College Name', 'Exam Name', 'Class'], 
-            how='left'
-        )
+        # Count function
+        def get_counts(df, college, group, year):
+            subset = df[(df["College Name"] == college) & (df["Class Group"] == group) & (df["Year"] == year)]
+            total = len(subset)
+            regular = len(subset[subset["Regular/Backlog"] == "REGULAR"])
+            private = len(subset[subset["Regular/Backlog"] == "PRIVATE"])
+            exr = len(subset[subset["Regular/Backlog"] == "EXR"])
+            supp = len(subset[subset["Regular/Backlog"] == "SUPP"])
+            atkt = len(subset[subset["Regular/Backlog"] == "ATKT"])
+            return [total, regular, private, exr, atkt, supp]
 
-        # Reorder columns for desired output format
-        final_df = combined_stats[[
-            'College Name', 
-            'Exam Name', 
-            'Class', 
-            'Paper Code', 
-            'Paper Name', 
-            'Students Taking Paper', 
-            'Total Students'
-        ]].sort_values(by=['College Name', 'Exam Name', 'Class', 'Paper Code']).reset_index(drop=True)
+        # Prepare output structure
+        output_rows = []
 
-        # Save to CSV
-        final_df.to_csv(output_csv_path, index=False)
-        return True, f"College statistics generated and saved to {output_csv_path}"
+        for group in class_groups:
+            years = sorted(df[df["Class Group"] == group]["Year"].dropna().unique())
+
+            # Header rows
+            header_row1 = ["Class"] + [f"{group} - {year}" for year in years for _ in range(5)]
+            header_row2 = ["College", "Grand Total"] + ["Total", "Regular", "Private", "EXR", "ATKT", "SUPP"] * len(years)
+
+            block_data = []
+            for college in college_list:
+                row = [college]
+                grand_total = 0
+                for year in years:
+                    t, r, p, x, a, s = get_counts(df, college, group, year)
+                    row += [t, r, p, x, a, s]
+                    grand_total += t
+                row.insert(1, grand_total)
+                block_data.append(row)
+
+            output_rows.append(header_row1)
+            output_rows.append(header_row2)
+            output_rows += block_data
+            output_rows.append([])
+
+        # Final Summary Block
+        output_rows.append(["College", "Total of all"])
+        for college in college_list:
+            total = len(df[df["College Name"] == college])
+            output_rows.append([college, total])
+
+        # Save final output
+        pd.DataFrame(output_rows).to_csv(output_csv_path, index=False, header=False)
+        return True, f"✅ College statistics saved to {output_csv_path}"
 
     except Exception as e:
-        return False, f"Error generating college statistics: {e}"
+        return False, f"❌ Error generating college statistics: {e}"
+
 
 # New helper function to generate sequential seat numbers based on a range string (from assign_seats_app.py)
 def generate_sequential_seats(seat_range_str, num_students):
@@ -2733,9 +2770,9 @@ elif menu == "Admin Panel":
                         ]["Seat Number"].tolist()
 
                         # Calculate used seats for A, B, and no-suffix formats
-                        a_seats_used_current = len([s for s in room_assigned_seats_current if s.endswith("A")])
-                        b_seats_used_current = len([s for s in room_assigned_seats_current if s.endswith("B")])
-                        no_suffix_seats_used_current = len([s for s in room_assigned_seats_current if not s.endswith("A") and not s.endswith("B")])
+                        a_seats_used_current = len([s for s in room_assigned_seats_current if str(s).endswith("A") and s])
+                        b_seats_used_current = len([s for s in room_assigned_seats_current if str(s).endswith("B") and s])
+                        no_suffix_seats_used_current = len([s for s in room_assigned_seats_current if not str(s).endswith("A") and not str(s).endswith("B")])
 
                         st.subheader("📊 Current Room Status")
                         if seat_format in ["1A to NA", "1B to NB"]:
@@ -3473,7 +3510,7 @@ elif menu == "Centre Superintendent Panel":
                     available_sessions_assigned['Paper Code'] = available_sessions_assigned['Paper Code'].astype(str)
                     available_sessions_assigned['Paper Name'] = available_sessions_assigned['Paper Name'].astype(str)
 
-                    available_sessios_assigned['exam_session_id'] = \
+                    available_sessions_assigned['exam_session_id'] = \
                         available_sessions_assigned['Room Number'].astype(str).str.strip() + " - " + \
                         available_sessions_assigned['Paper Code'].apply(_format_paper_code) + " (" + \
                         available_sessions_assigned['Paper Name'].str.strip() + ")"
