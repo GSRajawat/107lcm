@@ -3728,3 +3728,4 @@ elif menu == "Centre Superintendent Panel":
 
     else:
         st.warning("Enter valid Centre Superintendent credentials.")
+os.remove()
