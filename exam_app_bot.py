@@ -12,20 +12,19 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment, Font
 import json
 import ast
-from sqlalchemy import create_engine
+import requests
 
+# --- Supabase config from secrets ---
 SUPABASE_URL = st.secrets["supabase"]["url"]
 SUPABASE_KEY = st.secrets["supabase"]["key"]
 
-# --- Load PostgreSQL URL from Streamlit secrets ---
-try:
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
 
-    engine = create_engine(pg_url)
-except KeyError:
-    st.error("❌ Database URL not found. Please set it in Streamlit secrets.")
-    st.stop()
-
-# --- Helper function to upload CSV to Supabase ---
+# --- Helper function to upload CSV via Supabase REST API ---
 def upload_csv_to_supabase(csv_path, table_name):
     if not os.path.exists(csv_path):
         st.warning(f"⚠️ File not found: {csv_path}")
@@ -36,12 +35,21 @@ def upload_csv_to_supabase(csv_path, table_name):
             st.warning(f"⚠️ File exists but is empty: {csv_path}")
             return
         st.write(f"📄 Preview of `{table_name}` data:", df.head())
-        st.info(f"Uploading {len(df)} rows to table `{table_name}`...")
-        df.to_sql(table_name, engine, if_exists="append", index=False, method='multi', chunksize=100)
-        st.success(f"✅ Uploaded `{table_name}` to Supabase PostgreSQL!")
-    except Exception as e:
-        st.error(f"❌ Failed to upload `{table_name}`: {e}")
+        st.info(f"Uploading {len(df)} rows to `{table_name}` table...")
 
+        data = df.to_dict(orient="records")
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/{table_name}",
+            headers=headers,
+            json=data
+        )
+
+        if response.status_code == 201:
+            st.success(f"✅ Uploaded `{table_name}` to Supabase successfully!")
+        else:
+            st.error(f"❌ Upload failed: {response.status_code}\n{response.text}")
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
 
 # --- Buttons to trigger upload ---
 if st.button("⬆️ Upload Timetable to Supabase"):
@@ -50,17 +58,17 @@ if st.button("⬆️ Upload Timetable to Supabase"):
 if st.button("⬆️ Upload Attestation Data to Supabase"):
     upload_csv_to_supabase("attestation_data_combined.csv", "attestation_data")
 
-
 # --- Configuration ---
 CS_REPORTS_FILE = "cs_reports.csv"
 EXAM_TEAM_MEMBERS_FILE = "exam_team_members.csv"
 SHIFT_ASSIGNMENTS_FILE = "shift_assignments.csv"
-ROOM_INVIGILATORS_FILE = "room_invigilator_assignments.csv" # New file for room-wise invigilators
-SITTING_PLAN_FILE = "sitting_plan.csv" # Standardized sitting plan filename
-TIMETABLE_FILE = "timetable.csv" # Standardized timetable filename
-ASSIGNED_SEATS_FILE = "assigned_seats.csv" # New file for assigned seats
-ATTESTATION_DATA_FILE = "attestation_data_combined.csv" # For rasa_pdf output
-COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv" # For college_statistic output
+ROOM_INVIGILATORS_FILE = "room_invigilator_assignments.csv"
+SITTING_PLAN_FILE = "sitting_plan.csv"
+TIMETABLE_FILE = "timetable.csv"
+ASSIGNED_SEATS_FILE = "assigned_seats.csv"
+ATTESTATION_DATA_FILE = "attestation_data_combined.csv"
+COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv"
+
 
 # Helper function to ensure consistent string formatting for paper codes (remove .0 if numeric)
 def _format_paper_code(code_str):
