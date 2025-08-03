@@ -4,3 +4,4 @@ openpyxl
 firebase-admin
 fitz
 PyMuPDF
+sqlalchemy
