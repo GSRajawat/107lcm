@@ -76,6 +76,21 @@ ASSIGNED_SEATS_FILE = "assigned_seats.csv"
 ATTESTATION_DATA_FILE = "attestation_data_combined.csv"
 COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv"
 
+def fetch_supabase_table(table_name):
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{table_name}?select=*",
+            headers=headers
+        )
+        if response.status_code == 200:
+            return pd.DataFrame(response.json())
+        else:
+            st.error(f"❌ Failed to fetch `{table_name}`: {response.status_code}")
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"❌ Error while fetching `{table_name}`: {e}")
+        return pd.DataFrame()
+
 
 # Helper function to ensure consistent string formatting for paper codes (remove .0 if numeric)
 def _format_paper_code(code_str):
