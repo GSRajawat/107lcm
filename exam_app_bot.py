@@ -34,7 +34,7 @@ def upload_csv_to_supabase(csv_path, table_name):
             return
         st.write(f"📄 Preview of `{table_name}` data:", df.head())
         st.info(f"Uploading {len(df)} rows to table `{table_name}`...")
-        df.to_sql(table_name, engine, if_exists="replace", index=False, method='multi', chunksize=100)
+        df.to_sql(table_name, engine, if_exists="append", index=False, method='multi', chunksize=100)
         st.success(f"✅ Uploaded `{table_name}` to Supabase PostgreSQL!")
     except Exception as e:
         st.error(f"❌ Failed to upload `{table_name}`: {e}")
