@@ -5,3 +5,4 @@ firebase-admin
 fitz
 PyMuPDF
 sqlalchemy
+psycopg2-binary
