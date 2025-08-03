@@ -39,9 +39,10 @@ def upload_csv_to_supabase(csv_path, table_name):
         st.write(f"📄 Preview of `{table_name}` data:", df.head())
         st.info(f"Uploading {len(df)} rows to `{table_name}` table...")
 
-        # ✅ Clean: replace NaN, inf, -inf with None (valid in JSON)
+        # ✅ Clean: convert inf/-inf to None, and NaNs to None
         df = df.replace({float("inf"): None, float("-inf"): None})
         df = df.where(pd.notnull(df), None)
+
         data = df.to_dict(orient="records")
 
         response = requests.post(
