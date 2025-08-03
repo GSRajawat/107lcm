@@ -39,12 +39,13 @@ def upload_csv_to_supabase(csv_path, table_name):
         st.write(f"📄 Preview of `{table_name}` data:", df.head())
         st.info(f"Uploading {len(df)} rows to `{table_name}` table...")
 
-        # ✅ Clean: convert inf/-inf to None, and NaNs to None
-        df = df.replace({float("inf"): None, float("-inf"): None})
-        df = df.where(pd.notnull(df), None)
+        # ✅ Clean out all non-JSON-safe values (NaN, inf, -inf)
+        df = df.applymap(lambda x: None if pd.isna(x) or x in [float("inf"), float("-inf")] else x)
 
+        # Convert to list of dicts
         data = df.to_dict(orient="records")
 
+        # POST to Supabase REST API
         response = requests.post(
             f"{SUPABASE_URL}/rest/v1/{table_name}",
             headers=headers,
@@ -57,8 +58,6 @@ def upload_csv_to_supabase(csv_path, table_name):
             st.error(f"❌ Upload failed: {response.status_code}\n{response.text}")
     except Exception as e:
         st.error(f"❌ Error: {e}")
-
-
 # --- Buttons to trigger upload ---
 if st.button("⬆️ Upload Timetable to Supabase"):
     upload_csv_to_supabase("timetable.csv", "timetable")
