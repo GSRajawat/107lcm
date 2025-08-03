@@ -3,44 +3,48 @@ import pandas as pd
 import datetime
 import os
 import io
-import zipfile # For handling zip files
-import tempfile # For creating temporary directories
-import fitz  # PyMuPDF for PDF processing
-import re # For regex in PDF processing
+import zipfile
+import tempfile
+import fitz  # PyMuPDF
+import re
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment, Font
 import json
-import ast # Added for literal_eval to convert string representations of lists back to lists
+import ast
 from sqlalchemy import create_engine
 
-# --- Get PostgreSQL URL from Streamlit Secrets ---
-pg_url = st.secrets["connections"]["postgres"]["url"]
-engine = create_engine(pg_url)
+# --- Load PostgreSQL URL from Streamlit secrets ---
+try:
+    pg_url = st.secrets["connections"]["postgres"]["url"]
+    engine = create_engine(pg_url)
+except KeyError:
+    st.error("❌ Database URL not found. Please set it in Streamlit secrets.")
+    st.stop()
 
-# --- Sample function to save timetable to Supabase ---
-def save_timetable_to_supabase(csv_path="timetable.csv"):
+# --- Helper function to upload CSV to Supabase ---
+def upload_csv_to_supabase(csv_path, table_name):
+    if not os.path.exists(csv_path):
+        st.warning(f"⚠️ File not found: {csv_path}")
+        return
     try:
         df = pd.read_csv(csv_path)
-        df.to_sql("timetable", engine, if_exists="replace", index=False)
-        st.success("✅ Timetable saved to Supabase PostgreSQL!")
+        if df.empty:
+            st.warning(f"⚠️ File exists but is empty: {csv_path}")
+            return
+        st.write(f"📄 Preview of `{table_name}` data:", df.head())
+        df.to_sql(table_name, engine, if_exists="replace", index=False)
+        st.success(f"✅ Uploaded `{table_name}` to Supabase PostgreSQL!")
     except Exception as e:
-        st.error(f"❌ Failed to save timetable: {e}")
+        st.error(f"❌ Failed to upload `{table_name}`: {e}")
 
-# --- Sample function to save attestation data ---
-def save_attestation_to_supabase(csv_path="attestation_data_combined.csv"):
-    try:
-        df = pd.read_csv(csv_path)
-        df.to_sql("attestation_data", engine, if_exists="replace", index=False)
-        st.success("✅ Attestation data saved to Supabase PostgreSQL!")
-    except Exception as e:
-        st.error(f"❌ Failed to save attestation data: {e}")
+# --- Buttons to trigger upload ---
+if st.button("⬆️ Upload Timetable to Supabase"):
+    upload_csv_to_supabase("timetable.csv", "timetable")
 
-if st.button("Upload Timetable to Supabase"):
-    save_timetable_to_supabase()
+if st.button("⬆️ Upload Attestation Data to Supabase"):
+    upload_csv_to_supabase("attestation_data_combined.csv", "attestation_data")
 
-if st.button("Upload Attestation Data to Supabase"):
-    save_attestation_to_supabase()
 
 # --- Configuration ---
 CS_REPORTS_FILE = "cs_reports.csv"
