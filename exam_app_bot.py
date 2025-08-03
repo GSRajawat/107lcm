@@ -12,6 +12,35 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment, Font
 import json
 import ast # Added for literal_eval to convert string representations of lists back to lists
+from sqlalchemy import create_engine
+
+# --- Get PostgreSQL URL from Streamlit Secrets ---
+pg_url = st.secrets["connections"]["postgres"]["url"]
+engine = create_engine(pg_url)
+
+# --- Sample function to save timetable to Supabase ---
+def save_timetable_to_supabase(csv_path="timetable.csv"):
+    try:
+        df = pd.read_csv(csv_path)
+        df.to_sql("timetable", engine, if_exists="replace", index=False)
+        st.success("✅ Timetable saved to Supabase PostgreSQL!")
+    except Exception as e:
+        st.error(f"❌ Failed to save timetable: {e}")
+
+# --- Sample function to save attestation data ---
+def save_attestation_to_supabase(csv_path="attestation_data_combined.csv"):
+    try:
+        df = pd.read_csv(csv_path)
+        df.to_sql("attestation_data", engine, if_exists="replace", index=False)
+        st.success("✅ Attestation data saved to Supabase PostgreSQL!")
+    except Exception as e:
+        st.error(f"❌ Failed to save attestation data: {e}")
+
+if st.button("Upload Timetable to Supabase"):
+    save_timetable_to_supabase()
+
+if st.button("Upload Attestation Data to Supabase"):
+    save_attestation_to_supabase()
 
 # --- Configuration ---
 CS_REPORTS_FILE = "cs_reports.csv"
