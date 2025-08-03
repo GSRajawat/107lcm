@@ -185,7 +185,7 @@ def load_data():
 
     if os.path.exists(TIMETABLE_FILE):
         try:
-            timetable_df = pd.read_csv(TIMETABLE_FILE)
+            timetable_df = fetch_supabase_table(TIMETABLE_FILE)
             timetable_df.columns = timetable_df.columns.str.strip()
             # Ensure Paper Code column is consistently formatted in timetable_df
             if 'Paper Code' in timetable_df.columns:
