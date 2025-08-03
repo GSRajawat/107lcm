@@ -38,6 +38,7 @@ def upload_csv_to_supabase(csv_path, table_name):
     except Exception as e:
         st.error(f"❌ Failed to upload `{table_name}`: {e}")
 
+
 # --- Buttons to trigger upload ---
 if st.button("⬆️ Upload Timetable to Supabase"):
     upload_csv_to_supabase("timetable.csv", "timetable")
