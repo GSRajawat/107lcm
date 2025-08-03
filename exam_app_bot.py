@@ -29,15 +29,21 @@ def upload_csv_to_supabase(csv_path, table_name):
     if not os.path.exists(csv_path):
         st.warning(f"⚠️ File not found: {csv_path}")
         return
+
     try:
         df = pd.read_csv(csv_path)
         if df.empty:
             st.warning(f"⚠️ File exists but is empty: {csv_path}")
             return
+
         st.write(f"📄 Preview of `{table_name}` data:", df.head())
         st.info(f"Uploading {len(df)} rows to `{table_name}` table...")
 
+        # ✅ Clean: replace NaN, inf, -inf with None (valid in JSON)
+        df = df.replace({float("inf"): None, float("-inf"): None}).fillna(None)
+
         data = df.to_dict(orient="records")
+
         response = requests.post(
             f"{SUPABASE_URL}/rest/v1/{table_name}",
             headers=headers,
@@ -50,6 +56,7 @@ def upload_csv_to_supabase(csv_path, table_name):
             st.error(f"❌ Upload failed: {response.status_code}\n{response.text}")
     except Exception as e:
         st.error(f"❌ Error: {e}")
+
 
 # --- Buttons to trigger upload ---
 if st.button("⬆️ Upload Timetable to Supabase"):
