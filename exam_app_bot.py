@@ -14,6 +14,7 @@ import json
 import ast
 from sqlalchemy import create_engine
 
+import streamlit as st
 SUPABASE_URL = st.secrets["supabase"]["url"]
 SUPABASE_KEY = st.secrets["supabase"]["key"]
 
