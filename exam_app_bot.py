@@ -13,6 +13,7 @@ from openpyxl.styles import Alignment, Font
 import json
 import ast
 import requests
+import traceback
 
 # --- Supabase config from secrets ---
 SUPABASE_URL = st.secrets["supabase"]["url"]
@@ -298,17 +299,23 @@ def process_zip_and_upload_to_supabase(uploaded_zip, table_name, file_type):
             zip_file.extractall(temp_dir)
             
             all_extracted_data = []
+            pdf_files_found = 0
+            
             for root, _, files in os.walk(temp_dir):
                 for file_name in files:
                     if file_name.endswith('.pdf'):
+                        pdf_files_found += 1
                         pdf_path = os.path.join(root, file_name)
                         if file_type == "sitting_plan":
                             all_extracted_data.extend(_extract_sitting_plan_data(pdf_path))
                         elif file_type == "timetable":
                             all_extracted_data.extend(_extract_timetable_data(pdf_path))
             
+            if pdf_files_found == 0:
+                return False, f"No PDF files were found inside the uploaded ZIP file."
+            
             if not all_extracted_data:
-                return False, f"No PDF files found or no data could be extracted from the PDFs in the ZIP for {table_name}."
+                return False, f"PDF files were found, but no data could be extracted from them. The parsing logic might not match your PDF format."
 
             success, message = save_data_to_supabase(table_name, all_extracted_data)
             return success, message
@@ -316,8 +323,47 @@ def process_zip_and_upload_to_supabase(uploaded_zip, table_name, file_type):
     except zipfile.BadZipFile:
         return False, "The uploaded file is not a valid ZIP file."
     except Exception as e:
-        return False, f"An error occurred during processing: {e}"
+        st.error(f"An error occurred during processing: {traceback.format_exc()}")
+        return False, f"An unexpected error occurred during processing: {e}"
 
+def _test_pdf_extraction(uploaded_pdf, file_type):
+    """
+    Function to test PDF extraction logic and display raw text and parsed data.
+    """
+    if not uploaded_pdf:
+        return
+        
+    try:
+        pdf_bytes = uploaded_pdf.read()
+        doc = fitz.open("pdf", pdf_bytes)
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text()
+        doc.close()
+        
+        st.info("Raw text extracted from the PDF:")
+        st.text_area("Raw Text", value=full_text, height=400)
+        
+        st.info("Data extracted by the parsing logic:")
+        
+        temp_file_path = "temp.pdf"
+        with open(temp_file_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        if file_type == "sitting_plan":
+            extracted_data = _extract_sitting_plan_data(temp_file_path)
+            st.dataframe(pd.DataFrame(extracted_data))
+        elif file_type == "timetable":
+            extracted_data = _extract_timetable_data(temp_file_path)
+            st.dataframe(pd.DataFrame(extracted_data))
+        
+        os.remove(temp_file_path)
+
+        if not extracted_data:
+            st.warning("No data could be extracted using the current regex patterns. Please examine the raw text above and provide feedback to update the patterns.")
+    except Exception as e:
+        st.error(f"An error occurred during PDF processing: {e}")
+        st.error(traceback.format_exc())
 
 # Save uploaded files (for admin panel)
 def upload_file_to_supabase(uploaded_file_content, table_name):
@@ -596,7 +642,7 @@ def get_all_exams(roll_number, sitting_plan_df, timetable_df):
     # Find rows in the sitting plan that contain the roll number
     matching_sitting_plan_rows = sitting_plan_df[
         sitting_plan_df.apply(
-            lambda row: roll_number in [str(row[f"Roll Number {i}"]) for i in range(1, 11) if pd.notna(row[f"Roll Number {i}"])],
+            lambda row: roll_number in [str(row.get(f"Roll Number {i}")) for i in range(1, 11) if pd.notna(row.get(f"Roll Number {i}"))],
             axis=1
         )
     ]
@@ -651,14 +697,14 @@ def get_sitting_details(roll_number, date_str, sitting_plan_df, timetable_df):
         matching_sp_row = sitting_plan_df[
             (sitting_plan_df['Paper Code'].apply(_format_paper_code) == paper_code) &
             (sitting_plan_df.apply(
-                lambda row: roll_number in [str(row[f"Roll Number {i}"]) for i in range(1, 11) if pd.notna(row[f"Roll Number {i}"])],
+                lambda row: roll_number in [str(row.get(f"Roll Number {i}")) for i in range(1, 11) if pd.notna(row.get(f"Roll Number {i}"))],
                 axis=1
             ))
         ]
         
         if not matching_sp_row.empty:
             result = exam_row.to_dict()
-            result['Room Number'] = str(matching_sp_row.iloc[0]['Room Number'])
+            result['Room Number'] = str(matching_sp_row.iloc[0].get('Room Number'))
             
             for i in range(1, 11):
                 if str(matching_sp_row.iloc[0].get(f'Roll Number {i}')).strip() == roll_number:
@@ -876,6 +922,7 @@ elif menu == "Admin Panel":
         
         admin_option = st.radio("Select Admin Task:", [
             "Upload Data from ZIP Files",
+            "Test PDF Extraction",
             "Update Exam Team Members",
             "Assign Rooms & Seats to Students",
             "Generate & Assign Shifts",
@@ -884,22 +931,40 @@ elif menu == "Admin Panel":
 
         if admin_option == "Upload Data from ZIP Files":
             st.subheader("Upload Data from PDF ZIP Files")
+            st.info("This will replace all existing data in the respective Supabase tables.")
             uploaded_zip_sitting_plan = st.file_uploader("Upload Sitting Plan ZIP (.zip)", type="zip", key="sitting_plan_zip")
             if uploaded_zip_sitting_plan:
-                success, message = process_zip_and_upload_to_supabase(uploaded_zip_sitting_plan, "sitting_plan", "sitting_plan")
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
+                with st.spinner("Processing sitting plan ZIP file..."):
+                    success, message = process_zip_and_upload_to_supabase(uploaded_zip_sitting_plan, "sitting_plan", "sitting_plan")
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+                st.rerun()
 
             uploaded_zip_timetable = st.file_uploader("Upload Timetable ZIP (.zip)", type="zip", key="timetable_zip")
             if uploaded_zip_timetable:
-                success, message = process_zip_and_upload_to_supabase(uploaded_zip_timetable, "timetable", "timetable")
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
+                with st.spinner("Processing timetable ZIP file..."):
+                    success, message = process_zip_and_upload_to_supabase(uploaded_zip_timetable, "timetable", "timetable")
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+                st.rerun()
         
+        elif admin_option == "Test PDF Extraction":
+            st.subheader("Test PDF Extraction Logic")
+            st.info("Upload a single PDF to see the raw text and what the application extracts from it.")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                test_file_type = st.radio("Select file type for testing:", ["sitting_plan", "timetable"])
+            with col2:
+                uploaded_test_pdf = st.file_uploader("Upload a single PDF to test", type="pdf")
+            
+            if uploaded_test_pdf:
+                _test_pdf_extraction(uploaded_test_pdf, test_file_type)
+
         elif admin_option == "Update Exam Team Members":
             st.subheader("Update Exam Team Members")
             st.info("Enter one name per line.")
@@ -1082,4 +1147,3 @@ elif menu == "Centre Superintendent Panel":
                     st.warning("No assigned seats, timetable or CS report data available.")
             else:
                 st.warning("Required data (assigned seats, timetable, or CS reports) is missing. Please ensure data is uploaded.")
-
