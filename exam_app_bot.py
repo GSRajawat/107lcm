@@ -14,6 +14,9 @@ import json
 import ast
 from sqlalchemy import create_engine
 
+SUPABASE_URL = st.secrets["supabase"]["url"]
+SUPABASE_KEY = st.secrets["supabase"]["key"]
+
 # --- Load PostgreSQL URL from Streamlit secrets ---
 try:
     pg_url = st.secrets["connections"]["postgres"]["url"]
