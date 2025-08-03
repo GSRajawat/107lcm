@@ -33,7 +33,7 @@ def upload_csv_to_supabase(csv_path, table_name):
             st.warning(f"⚠️ File exists but is empty: {csv_path}")
             return
         st.write(f"📄 Preview of `{table_name}` data:", df.head())
-        df.to_sql(table_name, engine, if_exists="replace", index=False)
+        df.to_sql(table_name, engine, if_exists="replace", index=False, method='multi', chunksize=500)
         st.success(f"✅ Uploaded `{table_name}` to Supabase PostgreSQL!")
     except Exception as e:
         st.error(f"❌ Failed to upload `{table_name}`: {e}")
