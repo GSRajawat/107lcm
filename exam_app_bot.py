@@ -1855,18 +1855,22 @@ def display_report_panel():
         else:
             st.info("No UFM cases in the filtered reports.")
 # --- Updated Remuneration Calculation Functions (from bill.py) ---
+
+
 def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df, timetable_df, assigned_seats_df,
-                            manual_rates, prep_closing_assignments, holiday_dates, selected_classes_for_bill):
+                          manual_rates, prep_closing_assignments, holiday_dates, selected_classes_for_bill):
     """
     Calculates the remuneration for all team members based on assignments and rules,
     including individually selected preparation and closing days and holiday conveyance allowance.
     
     Updated Rules:
-    1. Person gets conveyance in evening shift of selected exam (if also worked in evening shift of selected/non-selected exam)
-    2. Person doesn't get conveyance in morning shift of selected exam (if also worked in evening shift of selected/non-selected exam)
-    3. Senior CS gets daily remuneration if worked in either shift of selected exam in bill of selected exam
-    4. Senior CS doesn't get daily remuneration if worked in morning shift of selected exam and evening shift of non-selected exam in bill of selected exam
-    5. Senior CS gets daily remuneration if worked in both shifts of selected exam in bill of selected exam
+    1. Person gets conveyance only if they worked in both shifts of the same date
+       (in selected and/or non-selected class exam).
+    2. If eligible, conveyance will be paid in the evening shift of a selected exam only.
+    3. Even if eligible, conveyance will not be paid in the morning shift of a selected exam.
+    4. Senior CS gets daily remuneration if worked in either shift of selected exam in bill of selected exam.
+    5. Senior CS doesn't get daily remuneration if worked in morning shift of selected exam and evening shift of non-selected exam in bill of selected exam.
+    6. Senior CS gets daily remuneration if worked in both shifts of selected exam in bill of selected exam.
     """
     remuneration_data_detailed_raw = []
     
@@ -1951,16 +1955,15 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             session_classes_map[date_shift_key] = set()
         session_classes_map[date_shift_key].add(str(tt_row['Class']).strip())
 
-    # NEW CONVEYANCE LOGIC: Check if person worked evening shift of any exam (selected or non-selected)
-    evening_shift_workers = {}
+    # NEW CONVEYANCE LOGIC: Check if a person worked in both shifts on the same date
+    workers_with_both_shifts = set()
     if not df_assignments.empty:
         df_assignments['Date_dt'] = pd.to_datetime(df_assignments['Date'], format='%d-%m-%Y', errors='coerce')
-        evening_workers = df_assignments[df_assignments['Shift'] == 'Evening']
-        for _, row in evening_workers.iterrows():
-            name = row['Name']
-            if name not in evening_shift_workers:
-                evening_shift_workers[name] = set()
-            evening_shift_workers[name].add((row['Date'], row['Role_Key']))
+        # Group by name and date, then filter for those with both shifts
+        shift_counts = df_assignments.groupby(['Name', 'Date'])['Shift'].nunique().reset_index()
+        eligible_workers_df = shift_counts[shift_counts['Shift'] == 2]
+        for _, row in eligible_workers_df.iterrows():
+            workers_with_both_shifts.add((row['Name'], row['Date']))
 
     # Now calculate remuneration for all entries in unified_assignments
     for assignment in unified_assignments:
@@ -1979,18 +1982,15 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
         # NEW CONVEYANCE LOGIC IMPLEMENTATION
         conveyance = 0
         if remuneration_rules[role_key]['exam_conveyance']:
-            # Rule 1: Person gets conveyance in evening shift of selected exam (if also worked in evening shift)
-            if shift == 'Evening' and is_selected_exam and name in evening_shift_workers:
-                conveyance = manual_rates['conveyance_rate']
-            
-            # Rule 2: Person doesn't get conveyance in morning shift of selected exam (if also worked in evening shift)
-            elif shift == 'Morning' and is_selected_exam and name in evening_shift_workers:
-                conveyance = 0
-            
-            # Default conveyance for other cases (non-selected exams, etc.)
-            elif shift == 'Evening' and not name in evening_shift_workers:
-                conveyance = manual_rates['conveyance_rate']
-
+            # Rule 1: A person will be eligible for conveyance only if they worked in both shifts of the same date
+            if (name, date) in workers_with_both_shifts:
+                # Rule 2: If eligible, they will be paid conveyance in the evening shift of a selected exam only.
+                if shift == 'Evening' and is_selected_exam:
+                    conveyance = manual_rates['conveyance_rate']
+                # Rule 3: Even if eligible, they will not be paid conveyance in the morning shift of a selected exam.
+                elif shift == 'Morning' and is_selected_exam:
+                    conveyance = 0
+        
         remuneration_data_detailed_raw.append({
             'Name': name,
             'Role_Key': role_key,
@@ -2045,8 +2045,7 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             eligible_days = set()
             
             for date, shifts in selected_dates.items():
-                # Rule 3: Gets daily remuneration if worked in either shift of selected exam
-                # Rule 5: Gets daily remuneration if worked in both shifts of selected exam
+                # Rule 3 & 5: Gets daily remuneration if worked in either shift or both shifts of selected exam
                 if 'Morning' in shifts or 'Evening' in shifts:
                     eligible_days.add(date)
             
@@ -2324,7 +2323,7 @@ def add_total_row(df):
         if col in ['SN', 'S.N.']:
             total_row[col] = 'TOTAL'
         elif col in ['Name (with role)', 'Name', 'Role', 'Duty dates', 'Shift (morning/evening)', 'Signature', 'Signature of Receiver',
-                     'Duty dates of selected class exam Shift (morning)', 'Duty dates of selected class exam Shift (evening)']:
+                      'Duty dates of selected class exam Shift (morning)', 'Duty dates of selected class exam Shift (evening)']:
             total_row[col] = ''
         elif df[col].dtype in ['int64', 'float64']:
             total_row[col] = df[col].sum()
@@ -2390,7 +2389,6 @@ def save_bills_to_excel(individual_bills_df, role_summary_df, class_workers_df, 
     
     output.seek(0)
     return output, filename
-
 # Main app
 st.title("Government Law College, Morena (M.P.) Examination Management System")
 
@@ -2827,7 +2825,7 @@ elif menu == "Admin Panel":
                     # Enhanced capacity input
                     col1, col2 = st.columns(2)
                     with col1:
-                        total_capacity = st.number_input("Enter Total Room Capacity (for '1 to N' format)", min_value=1, max_value=200, value=60, key="total_capacity_input")
+                        total_capacity = st.number_input("Enter Total Room Capacity (for '1 to N' format)", min_value=1, max_value=2000, value=2000, key="total_capacity_input")
                     with col2:
                         capacity_per_format = st.number_input("Capacity per Format (for 'A/B' formats)", min_value=1, max_value=100, value=30, key="capacity_per_format_input")
 
@@ -3459,7 +3457,7 @@ elif menu == "Centre Superintendent Panel":
                 selected_senior_cs = st.multiselect("Senior Center Superintendent (Max 1)", all_team_members, default=loaded_senior_cs, max_selections=1)
                 selected_cs = st.multiselect("Center Superintendent (Max 1)", all_team_members, default=loaded_cs, max_selections=1)
                 selected_assist_cs = st.multiselect("Assistant Center Superintendent (Max 3)", all_team_members, default=loaded_assist_cs, max_selections=3)
-                selected_perm_inv = st.multiselect("Permanent Invigilator (Max 1)", all_team_members, default=loaded_perm_inv, max_selections=1)
+                selected_perm_inv = st.multiselect("Permanent Invigilator (Max 3)", all_team_members, default=loaded_perm_inv, max_selections=3)
                 selected_assist_perm_inv = st.multiselect("Assistant Permanent Invigilator (Max 5)", all_team_members, default=loaded_assist_perm_inv, max_selections=5)
                 selected_class_3 = st.multiselect("Class 3 Worker (Max 10)", all_team_members, default=loaded_class_3, max_selections=10)
                 selected_class_4 = st.multiselect("Class 4 Worker (Max 10)", all_team_members, default=loaded_class_4, max_selections=10)
