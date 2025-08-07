@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import zipfile
 import io
-import fitz # PyMuPDF
+import fitz
 import re
 import tempfile
 import ast
