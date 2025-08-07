@@ -6,4 +6,4 @@ fitz
 sqlalchemy
 psycopg2-binary
 PyMuPDF
-fitz
+frontend
