@@ -1,17 +1,25 @@
 import streamlit as st
 import pandas as pd
-import datetime
 import os
+import zipfile
 import io
-import zipfile # For handling zip files
-import tempfile # For creating temporary directories
-import fitz  # PyMuPDF for PDF processing
-import re # For regex in PDF processing
+import fitz # PyMuPDF
+import re
+import tempfile
+import ast
+import requests
+from datetime import date
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment, Font
 import json
-import ast # Added for literal_eval to convert string representations of lists back to lists
+from supabase import create_client, Client
+import datetime
+import numpy as np
+
+
+# Initialize Supabase
+
 
 # --- Configuration ---
 CS_REPORTS_FILE = "cs_reports.csv"
@@ -23,6 +31,351 @@ TIMETABLE_FILE = "timetable.csv" # Standardized timetable filename
 ASSIGNED_SEATS_FILE = "assigned_seats.csv" # New file for assigned seats
 ATTESTATION_DATA_FILE = "attestation_data_combined.csv" # For rasa_pdf output
 COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv" # For college_statistic output
+
+
+try:
+    SUPABASE_URL = st.secrets["supabase"]["url"]
+    SUPABASE_KEY = st.secrets["supabase"]["key"]
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except KeyError:
+    st.error("Supabase secrets not found. Please configure `supabase.url` and `supabase.key` in your secrets.toml file.")
+    st.stop()
+
+# --- Page Configuration ---
+st.set_page_config(
+    page_title="Exam Management System",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
+    try:
+        import pandas as pd
+        import numpy as np
+        import json
+        import ast
+
+        df = pd.read_csv(csv_path)
+        df.columns = df.columns.str.strip()
+
+        # Column name mapping from CSV headers to database columns
+        column_mappings = {
+            # Common mappings
+            'Roll Number': 'roll_number',
+            'Paper Code': 'paper_code', 
+            'Paper Name': 'paper_name',
+            'Room Number': 'room_number',
+            'Seat Number': 'seat_number',
+            'Date': 'date',
+            'Shift': 'shift',
+            'SN': 'sn',
+            'Time': 'time',
+            'Class': 'class',
+            'Paper': 'paper',
+            'Name': 'name',
+            
+            # Sitting plan specific
+            'Roll Number 1': 'roll_number_1',
+            'Roll Number 2': 'roll_number_2', 
+            'Roll Number 3': 'roll_number_3',
+            'Roll Number 4': 'roll_number_4',
+            'Roll Number 5': 'roll_number_5',
+            'Roll Number 6': 'roll_number_6',
+            'Roll Number 7': 'roll_number_7',
+            'Roll Number 8': 'roll_number_8',
+            'Roll Number 9': 'roll_number_9',
+            'Roll Number 10': 'roll_number_10',
+            'Mode': 'mode',
+            'Type': 'type',
+            'Seat Number 1': 'seat_number_1',
+            'Seat Number 2': 'seat_number_2',
+            'Seat Number 3': 'seat_number_3', 
+            'Seat Number 4': 'seat_number_4',
+            'Seat Number 5': 'seat_number_5',
+            'Seat Number 6': 'seat_number_6',
+            'Seat Number 7': 'seat_number_7',
+            'Seat Number 8': 'seat_number_8',
+            'Seat Number 9': 'seat_number_9',
+            'Seat Number 10': 'seat_number_10',
+            
+            # Other specific mappings
+            'report_key': 'report_key',
+            'room_num': 'room_num',
+            'absent_roll_numbers': 'absent_roll_numbers',
+            'ufm_roll_numbers': 'ufm_roll_numbers',
+            'invigilators': 'invigilators',
+            'senior_center_superintendent': 'senior_center_superintendent',
+            'center_superintendent': 'center_superintendent',
+            'assistant_center_superintendent': 'assistant_center_superintendent',
+            'permanent_invigilator': 'permanent_invigilator',
+            'assistant_permanent_invigilator': 'assistant_permanent_invigilator',
+            'class_3_worker': 'class_3_worker',
+            'class_4_worker': 'class_4_worker'
+        }
+        
+        # Rename columns according to mapping
+        df.rename(columns=column_mappings, inplace=True)
+
+        # Clean missing values and handle NaN
+        df = df.replace(r'^\s*$', None, regex=True)
+        df = df.replace([np.inf, -np.inf], None)  # Handle infinite values
+        
+        # Convert all columns to handle NaN properly
+        for col in df.columns:
+            df[col] = df[col].apply(lambda x: None if pd.isna(x) or 
+                                   (isinstance(x, float) and not np.isfinite(x)) or
+                                   str(x).strip() == '' else x)
+
+        # Handle date format conversion (DD-MM-YYYY to YYYY-MM-DD)
+        if 'date' in df.columns:
+            df['date'] = df['date'].apply(lambda x: 
+                f"20{x.split('-')[2]}-{x.split('-')[1].zfill(2)}-{x.split('-')[0].zfill(2)}" 
+                if x and isinstance(x, str) and len(x.split('-')) == 3 
+                else x)
+
+        # Handle JSON fields (arrays stored as strings)
+        json_fields = ['absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
+                      'senior_center_superintendent', 'center_superintendent', 
+                      'assistant_center_superintendent', 'permanent_invigilator',
+                      'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']
+        
+        for field in json_fields:
+            if field in df.columns:
+                df[field] = df[field].apply(lambda x: 
+                    ast.literal_eval(x) if x and isinstance(x, str) and x.startswith('[') 
+                    else [x] if x else None)
+
+        # Convert numeric fields properly
+        numeric_fields = ['room_number', 'seat_number', 'room_num', 'sn'] + \
+                        [f'seat_number_{i}' for i in range(1, 11)]
+        
+        for field in numeric_fields:
+            if field in df.columns:
+                df[field] = pd.to_numeric(df[field], errors='coerce')
+                df[field] = df[field].astype('Int64')  # Use nullable integer type
+
+        if df.empty:
+            return False, f"⚠️ `{csv_path}` is empty."
+
+        # Convert to records and ensure all NaN/None values are properly handled
+        records = df.to_dict(orient='records')
+        
+        # Final cleanup of records
+        cleaned_records = []
+        for record in records:
+            cleaned_record = {}
+            for key, value in record.items():
+                if pd.isna(value) or value is None or \
+                   (isinstance(value, float) and not np.isfinite(value)):
+                    cleaned_record[key] = None
+                elif isinstance(value, (np.int64, np.int32)):
+                    cleaned_record[key] = int(value)
+                elif isinstance(value, (np.float64, np.float32)):
+                    if np.isfinite(value):
+                        cleaned_record[key] = float(value)
+                    else:
+                        cleaned_record[key] = None
+                else:
+                    cleaned_record[key] = value
+            cleaned_records.append(cleaned_record)
+
+        # Upload in batches to handle large datasets
+        batch_size = 100
+        total_uploaded = 0
+        
+        for i in range(0, len(cleaned_records), batch_size):
+            batch = cleaned_records[i:i + batch_size]
+            supabase.table(table_name).insert(batch).execute()
+            total_uploaded += len(batch)
+
+        return True, f"✅ Uploaded {total_uploaded} rows to `{table_name}`."
+
+    except Exception as e:
+        return False, f"❌ Error uploading to `{table_name}`: {str(e)}"
+
+
+def download_supabase_to_csv(table_name, csv_filename):
+    try:
+        import pandas as pd
+        import numpy as np
+        
+        # Fetch all data from Supabase table
+        response = supabase.table(table_name).select("*").execute()
+        
+        if not response.data:
+            return False, f"⚠️ No data found in table `{table_name}`."
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(response.data)
+        
+        # Remove the auto-generated 'id' and 'created_at' columns if they exist
+        columns_to_drop = ['id', 'created_at']
+        df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
+        
+        # Reverse column name mapping (database columns back to CSV headers)
+        reverse_column_mappings = {
+            # Common mappings
+            'roll_number': 'Roll Number',
+            'paper_code': 'Paper Code',
+            'paper_name': 'Paper Name', 
+            'room_number': 'Room Number',
+            'seat_number': 'Seat Number',
+            'date': 'Date',
+            'shift': 'Shift',
+            'sn': 'SN',
+            'time': 'Time',
+            'class': 'Class',
+            'paper': 'Paper',
+            'name': 'name',
+            
+            # Sitting plan specific
+            'roll_number_1': 'Roll Number 1',
+            'roll_number_2': 'Roll Number 2',
+            'roll_number_3': 'Roll Number 3',
+            'roll_number_4': 'Roll Number 4',
+            'roll_number_5': 'Roll Number 5',
+            'roll_number_6': 'Roll Number 6',
+            'roll_number_7': 'Roll Number 7',
+            'roll_number_8': 'Roll Number 8',
+            'roll_number_9': 'Roll Number 9',
+            'roll_number_10': 'Roll Number 10',
+            'mode': 'Mode',
+            'type': 'Type',
+            'seat_number_1': 'Seat Number 1',
+            'seat_number_2': 'Seat Number 2',
+            'seat_number_3': 'Seat Number 3',
+            'seat_number_4': 'Seat Number 4',
+            'seat_number_5': 'Seat Number 5',
+            'seat_number_6': 'Seat Number 6',
+            'seat_number_7': 'Seat Number 7',
+            'seat_number_8': 'Seat Number 8',
+            'seat_number_9': 'Seat Number 9',
+            'seat_number_10': 'Seat Number 10',
+            
+            # Other specific mappings
+            'report_key': 'report_key',
+            'room_num': 'room_num',
+            'absent_roll_numbers': 'absent_roll_numbers',
+            'ufm_roll_numbers': 'ufm_roll_numbers',
+            'invigilators': 'invigilators',
+            'senior_center_superintendent': 'senior_center_superintendent',
+            'center_superintendent': 'center_superintendent',
+            'assistant_center_superintendent': 'assistant_center_superintendent',
+            'permanent_invigilator': 'permanent_invigilator',
+            'assistant_permanent_invigilator': 'assistant_permanent_invigilator',
+            'class_3_worker': 'class_3_worker',
+            'class_4_worker': 'class_4_worker'
+        }
+        
+        # Rename columns back to original CSV format
+        df.rename(columns=reverse_column_mappings, inplace=True)
+        
+        # Handle date format conversion (YYYY-MM-DD back to DD-MM-YYYY)
+        if 'Date' in df.columns:
+            df['Date'] = df['Date'].apply(lambda x: 
+                f"{x.split('-')[2]}-{x.split('-')[1]}-{x.split('-')[0][2:]}" 
+                if x and isinstance(x, str) and len(x.split('-')) == 3 
+                else x)
+        
+        # Handle JSON fields back to string format
+        json_fields = ['absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
+                      'senior_center_superintendent', 'center_superintendent',
+                      'assistant_center_superintendent', 'permanent_invigilator', 
+                      'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']
+        
+        for field in json_fields:
+            if field in df.columns:
+                df[field] = df[field].apply(lambda x: 
+                    str(x).replace("'", "'") if x and x != 'None' else '')
+        
+        # Replace None/NaN with empty strings for CSV format
+        df = df.fillna('')
+        
+        # Save to CSV in the same directory as the program
+        df.to_csv(csv_filename, index=False)
+        
+        return True, f"✅ Downloaded {len(df)} rows from `{table_name}` to `{csv_filename}`."
+        
+    except Exception as e:
+        return False, f"❌ Error downloading from `{table_name}`: {str(e)}"
+
+
+if st.button("🚀 Start (Download All Tables as CSVs)"):
+    with st.spinner("Downloading all Supabase tables to CSV files..."):
+        # Table to CSV filename mapping
+        table_csv_mapping = {
+            "timetable": "timetable.csv",
+            "sitting_plan": "sitting_plan.csv",
+            "assigned_seats": "assigned_seats.csv", 
+            "exam_team_members": "exam_team_members.csv",
+            "shift_assignments": "shift_assignments.csv",
+            "room_invigilator_assignments": "room_invigilator_assignments.csv",
+            "cs_reports": "cs_reports.csv"
+        }
+        
+        st.markdown("### 📥 Downloading all Supabase tables to CSV files...")
+        download_success = True
+        
+        for table_name, csv_filename in table_csv_mapping.items():
+            success, msg = download_supabase_to_csv(table_name, csv_filename)
+            if success:
+                st.success(msg)
+            else:
+                st.warning(msg)
+                download_success = False
+        
+        if download_success:
+            st.success("🎉 All tables successfully downloaded as CSV files!")
+        else:
+            st.warning("⚠️ Some tables could not be downloaded. Check the messages above.")
+
+if st.button("🛑 Stop (Reset and Re-upload All CSVs)"):
+    with st.spinner("Deleting all Supabase table rows..."):
+        table_order = [
+            "cs_reports",
+            "room_invigilator_assignments", 
+            "shift_assignments",
+            "exam_team_members",
+            "assigned_seats",
+            "sitting_plan",
+            "timetable"
+        ]
+
+        delete_errors = []
+        for table in table_order:
+            try:
+                supabase.table(table).delete().neq("id", 0).execute()  # delete all rows
+            except Exception as e:
+                delete_errors.append(f"❌ Error deleting from `{table}`: {str(e)}")
+
+    if delete_errors:
+        st.error("\n".join(delete_errors))
+    else:
+        st.success("✅ All existing Supabase table data deleted.")
+
+        # Now re-upload all CSVs to Supabase
+        csv_table_mapping = {
+            "timetable.csv": ("timetable", None),
+            "sitting_plan.csv": ("sitting_plan", None), 
+            "assigned_seats.csv": ("assigned_seats", None),
+            "exam_team_members.csv": ("exam_team_members", None),
+            "shift_assignments.csv": ("shift_assignments", None),
+            "room_invigilator_assignments.csv": ("room_invigilator_assignments", None),
+            "cs_reports.csv": ("cs_reports", None)
+        }
+
+        st.markdown("### 📤 Uploading all CSVs to Supabase...")
+        for file, (table, keys) in csv_table_mapping.items():
+            success, msg = upload_csv_to_supabase(table, file, unique_cols=keys)
+            if success:
+                st.success(msg)
+            else:
+                st.warning(msg)
 
 # Helper function to ensure consistent string formatting for paper codes (remove .0 if numeric)
 def _format_paper_code(code_str):
@@ -1854,10 +2207,9 @@ def display_report_panel():
             )
         else:
             st.info("No UFM cases in the filtered reports.")
+            
 # --- Updated Remuneration Calculation Functions (from bill.py) ---
 
-import pandas as pd
-import io
 
 def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df, timetable_df, assigned_seats_df,
                           manual_rates, prep_closing_assignments, holiday_dates, selected_classes_for_bill):
@@ -1901,8 +2253,8 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
 
     # Process shift assignments (all shifts, for conveyance and Senior CS daily rate)
     for index, row in shift_assignments_df.iterrows():
-        current_date = row['date']
-        current_shift = row['shift']
+        current_date = row['Date']
+        current_shift = row['Shift']
 
         for role_col in remuneration_rules.keys():
             if role_col in row and isinstance(row[role_col], list):
@@ -1923,8 +2275,8 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
 
     # Process room invigilator assignments (all shifts, for conveyance)
     for index, row in room_invigilator_assignments_df.iterrows():
-        current_date = row['date']
-        current_shift = row['shift']
+        current_date = row['Date']
+        current_shift = row['Shift']
         invigilators_list = row['invigilators']
 
         for invigilator in invigilators_list:
@@ -2021,50 +2373,55 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             (df_detailed_remuneration['Role_Display'] == role_display)
         ].copy()
         
-        # UPDATED SENIOR CS REMUNERATION LOGIC
         if role_key == 'senior_center_superintendent':
-            # Get person's work pattern
+            # Separate selected vs non-selected shifts
             selected_shifts = person_data[person_data['Is_Selected_Exam'] == True]
             non_selected_shifts = person_data[person_data['Is_Selected_Exam'] == False]
-            
-            # Group by date to check daily patterns
+
+            # Group by date
             selected_dates = {}
             non_selected_dates = {}
-            
+
             for _, shift_row in selected_shifts.iterrows():
                 date = shift_row['Date']
-                if date not in selected_dates:
-                    selected_dates[date] = []
-                selected_dates[date].append(shift_row['Shift'])
-            
+                selected_dates.setdefault(date, []).append(shift_row['Shift'])
+
             for _, shift_row in non_selected_shifts.iterrows():
                 date = shift_row['Date']
-                if date not in non_selected_dates:
-                    non_selected_dates[date] = []
-                non_selected_dates[date].append(shift_row['Shift'])
-            
-            # Apply Senior CS rules
-            eligible_days = set()
-            
-            for date, shifts in selected_dates.items():
-                # Rule 3 & 5: Gets daily remuneration if worked in either shift or both shifts of selected exam
-                if 'Morning' in shifts or 'Evening' in shifts:
-                    eligible_days.add(date)
-            
-            # Rule 4: Remove days where worked morning shift of selected exam and evening shift of non-selected exam
-            for date in list(eligible_days):
-                if (date in selected_dates and 'Morning' in selected_dates[date] and
-                    date in non_selected_dates and 'Evening' in non_selected_dates[date] and
-                    date not in selected_dates or 'Evening' not in selected_dates.get(date, [])):
-                    eligible_days.remove(date)
-            
-            filtered_person_data = person_data[person_data['Date'].isin(eligible_days)]
+                non_selected_dates.setdefault(date, []).append(shift_row['Shift'])
+
+            # Determine eligible days for remuneration
+            eligible_shifts = []
+
+            for _, row in person_data.iterrows():
+                date = row['Date']
+                shift = row['Shift']
+                is_selected = row['Is_Selected_Exam']
+
+                if shift == 'Morning' and is_selected:
+                    # Morning of selected exam: always allowed
+                    eligible_shifts.append(row)
+                elif shift == 'Evening':
+                    if is_selected:
+                        # Evening of selected exam
+                        if 'Morning' not in selected_dates.get(date, []):
+                            # Only include if morning of selected exam is not already worked
+                            eligible_shifts.append(row)
+                    else:
+                        # Evening of non-selected exam
+                        if 'Morning' not in selected_dates.get(date, []):
+                            # Include only if didn't already work morning of selected exam
+                            eligible_shifts.append(row)
+
+            # Final filtered data for SCS
+            filtered_person_data = pd.DataFrame(eligible_shifts)
         else:
-            # Filter other roles by selected classes for duties on exam days
+            # For all other roles
             if selected_classes_for_bill:
                 filtered_person_data = person_data[person_data['Is_Selected_Exam'] == True].copy()
             else:
                 filtered_person_data = person_data.copy()
+
 
         # Group dates by month for display for morning shifts (filtered data)
         duty_dates_morning_str = ""
@@ -2225,13 +2582,30 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
 def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_rules, prep_closing_assignments, holiday_dates, manual_rates, selected_classes_for_bill):
     """
     Generates the role-wise summary matrix with dates/shifts in rows and roles in columns.
+    Excludes exam days where no exams were conducted (daily total = 0).
     """
     
-    # Get all unique dates from assignments and prep/closing days
-    all_dates = set(df_detailed_remuneration['Date'].unique())
+    # Get all unique dates from prep/closing days only
+    prep_closing_dates = set()
     for name, assignments in prep_closing_assignments.items():
-        all_dates.update(assignments.get('prep_days', []))
-        all_dates.update(assignments.get('closing_days', []))
+        prep_closing_dates.update(assignments.get('prep_days', []))
+        prep_closing_dates.update(assignments.get('closing_days', []))
+    
+    # Get exam dates that have actual assignments (non-zero totals)
+    exam_dates = set()
+    for date_str in df_detailed_remuneration['Date'].unique():
+        date_data = df_detailed_remuneration[df_detailed_remuneration['Date'] == date_str]
+        # Check if there's any actual work on this date
+        has_work = False
+        for _, person_assignment in date_data.iterrows():
+            if person_assignment['Is_Selected_Exam'] or person_assignment['Conveyance'] > 0:
+                has_work = True
+                break
+        if has_work:
+            exam_dates.add(date_str)
+    
+    # Combine exam dates and prep/closing dates
+    all_dates = exam_dates.union(prep_closing_dates)
     
     # Convert dates to datetime for sorting
     sorted_dates = sorted([pd.to_datetime(d, format='%d-%m-%Y', errors='coerce') for d in all_dates if pd.notna(pd.to_datetime(d, format='%d-%m-%Y', errors='coerce'))])
@@ -2251,10 +2625,19 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
     
     matrix_data = []
 
-    # Process each exam day (Morning and Evening shifts)
+    # Process each exam day (Morning and Evening shifts) - only for dates with actual exams
     for date_dt in sorted_dates:
         date_str = date_dt.strftime('%d-%m-%Y')
         
+        # Skip if this is only a prep/closing date and not an exam date
+        if date_str not in exam_dates:
+            continue
+            
+        # Check if this date has any actual exam activity
+        date_assignments = df_detailed_remuneration[df_detailed_remuneration['Date'] == date_str]
+        if date_assignments.empty:
+            continue
+            
         # Morning Shift Row
         row_morning = {'Date & Shift': f"{date_str} (Morning)"}
         for col in columns[1:]:
@@ -2265,13 +2648,17 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
             (df_detailed_remuneration['Shift'] == 'Morning')
         ]
         
+        morning_has_activity = False
         for _, person_assignment in morning_data.iterrows():
             role_key = person_assignment['Role_Key']
             rem_rate = remuneration_rules[role_key]['rate']
             
-            # Exclude Senior CS remuneration from shift-wise calculation
-            if role_key != 'senior_center_superintendent':
-                row_morning[role_key] += rem_rate
+            # Only count if it's a selected exam or has remuneration
+            if person_assignment['Is_Selected_Exam']:
+                morning_has_activity = True
+                # Exclude Senior CS remuneration from shift-wise calculation
+                if role_key != 'senior_center_superintendent':
+                    row_morning[role_key] += rem_rate
         
         # Evening Shift Row
         row_evening = {'Date & Shift': f"{date_str} (Evening)"}
@@ -2283,16 +2670,20 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
             (df_detailed_remuneration['Shift'] == 'Evening')
         ]
 
+        evening_has_activity = False
         for _, person_assignment in evening_data.iterrows():
             role_key = person_assignment['Role_Key']
             rem_rate = remuneration_rules[role_key]['rate']
             
-            # Exclude Senior CS remuneration from shift-wise calculation
-            if role_key != 'senior_center_superintendent':
-                row_evening[role_key] += rem_rate
-            
-            # Add conveyance to the evening shift
-            row_evening['Conveyance'] += person_assignment['Conveyance']
+            # Only count if it's a selected exam or has conveyance
+            if person_assignment['Is_Selected_Exam'] or person_assignment['Conveyance'] > 0:
+                evening_has_activity = True
+                # Exclude Senior CS remuneration from shift-wise calculation
+                if role_key != 'senior_center_superintendent':
+                    row_evening[role_key] += rem_rate
+                
+                # Add conveyance to the evening shift
+                row_evening['Conveyance'] += person_assignment['Conveyance']
 
         # Process Senior CS remuneration for the whole day
         senior_cs_data = df_detailed_remuneration[
@@ -2323,12 +2714,17 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
             
             if eligible_for_day:
                 row_morning['senior_center_superintendent'] += remuneration_rules['senior_center_superintendent']['rate']
+                morning_has_activity = True
 
+        # Calculate daily totals
         row_morning['Daily Total'] = sum(row_morning[col] for col in columns[1:-1])
         row_evening['Daily Total'] = sum(row_evening[col] for col in columns[1:-1])
 
-        matrix_data.append(row_morning)
-        matrix_data.append(row_evening)
+        # Only add rows that have some activity (non-zero totals)
+        if morning_has_activity or row_morning['Daily Total'] > 0:
+            matrix_data.append(row_morning)
+        if evening_has_activity or row_evening['Daily Total'] > 0:
+            matrix_data.append(row_evening)
     
     # Process Prep/Closing Days
     prep_closing_remuneration = {}
@@ -2891,6 +3287,7 @@ elif menu == "Admin Panel":
                 st.markdown("---")
                 st.subheader("Session Student Summary (Assigned vs. Unassigned)")
                 session_paper_summary_df = get_session_paper_summary(date, shift, sitting_plan, assigned_seats_df, timetable)
+                
                 if not session_paper_summary_df.empty:
                     st.dataframe(session_paper_summary_df)
                 else:
