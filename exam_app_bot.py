@@ -315,77 +315,7 @@ def download_supabase_to_csv(table_name, csv_filename):
         return False, f"❌ Error downloading from `{table_name}`: {str(e)}"
 
 
-if st.button("🚀 Start (Download All Tables as CSVs)"):
-    with st.spinner("Downloading all Supabase tables to CSV files..."):
-        # Table to CSV filename mapping
-        table_csv_mapping = {
-            "timetable": "timetable.csv",
-            "sitting_plan": "sitting_plan.csv",
-            "assigned_seats": "assigned_seats.csv", 
-            "exam_team_members": "exam_team_members.csv",
-            "shift_assignments": "shift_assignments.csv",
-            "room_invigilator_assignments": "room_invigilator_assignments.csv",
-            "cs_reports": "cs_reports.csv"
-        }
-        
-        st.markdown("### 📥 Downloading all Supabase tables to CSV files...")
-        download_success = True
-        
-        for table_name, csv_filename in table_csv_mapping.items():
-            success, msg = download_supabase_to_csv(table_name, csv_filename)
-            if success:
-                st.success(msg)
-            else:
-                st.warning(msg)
-                download_success = False
-        
-        if download_success:
-            st.success("🎉 All tables successfully downloaded as CSV files!")
-        else:
-            st.warning("⚠️ Some tables could not be downloaded. Check the messages above.")
 
-if st.button("🛑 Stop (Reset and Re-upload All CSVs)"):
-    with st.spinner("Deleting all Supabase table rows..."):
-        table_order = [
-            "cs_reports",
-            "room_invigilator_assignments", 
-            "shift_assignments",
-            "exam_team_members",
-            "assigned_seats",
-            "sitting_plan",
-            "timetable"
-        ]
-
-        delete_errors = []
-        for table in table_order:
-            try:
-                supabase.table(table).delete().neq("id", 0).execute()  # delete all rows
-            except Exception as e:
-                delete_errors.append(f"❌ Error deleting from `{table}`: {str(e)}")
-
-    if delete_errors:
-        st.error("\n".join(delete_errors))
-    else:
-        st.success("✅ All existing Supabase table data deleted.")
-
-        # Now re-upload all CSVs to Supabase
-        csv_table_mapping = {
-            "timetable.csv": ("timetable", None),
-            "sitting_plan.csv": ("sitting_plan", None), 
-            "assigned_seats.csv": ("assigned_seats", None),
-            "exam_team_members.csv": ("exam_team_members", None),
-            "shift_assignments.csv": ("shift_assignments", None),
-            "room_invigilator_assignments.csv": ("room_invigilator_assignments", None),
-            "cs_reports.csv": ("cs_reports", None)
-        }
-
-        st.markdown("### 📤 Uploading all CSVs to Supabase...")
-        for file, (table, keys) in csv_table_mapping.items():
-            success, msg = upload_csv_to_supabase(table, file, unique_cols=keys)
-            if success:
-                st.success(msg)
-            else:
-                st.warning(msg)
 
 # Helper function to ensure consistent string formatting for paper codes (remove .0 if numeric)
 def _format_paper_code(code_str):
@@ -3549,6 +3479,79 @@ elif menu == "Admin Panel":
 
         elif admin_option == "Room Occupancy Report": # New Room Occupancy Report section
             display_room_occupancy_report(sitting_plan, assigned_seats_df, timetable)
+            
+            if st.button("🚀 Start (Download All Tables as CSVs)"):
+                with st.spinner("Downloading all Supabase tables to CSV files..."):
+                    # Table to CSV filename mapping
+                    table_csv_mapping = {
+                        "timetable": "timetable.csv",
+                        "sitting_plan": "sitting_plan.csv",
+                        "assigned_seats": "assigned_seats.csv", 
+                        "exam_team_members": "exam_team_members.csv",
+                        "shift_assignments": "shift_assignments.csv",
+                        "room_invigilator_assignments": "room_invigilator_assignments.csv",
+                        "cs_reports": "cs_reports.csv"
+                    }
+                    
+                    st.markdown("### 📥 Downloading all Supabase tables to CSV files...")
+                    download_success = True
+                    
+                    for table_name, csv_filename in table_csv_mapping.items():
+                        success, msg = download_supabase_to_csv(table_name, csv_filename)
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.warning(msg)
+                            download_success = False
+                    
+                    if download_success:
+                        st.success("🎉 All tables successfully downloaded as CSV files!")
+                    else:
+                        st.warning("⚠️ Some tables could not be downloaded. Check the messages above.")
+
+            if st.button("🛑 Stop (Reset and Re-upload All CSVs)"):
+                with st.spinner("Deleting all Supabase table rows..."):
+                    table_order = [
+                        "cs_reports",
+                        "room_invigilator_assignments", 
+                        "shift_assignments",
+                        "exam_team_members",
+                        "assigned_seats",
+                        "sitting_plan",
+                        "timetable"
+                    ]
+
+                    delete_errors = []
+                    for table in table_order:
+                        try:
+                            supabase.table(table).delete().neq("id", 0).execute()  # delete all rows
+                        except Exception as e:
+                            delete_errors.append(f"❌ Error deleting from `{table}`: {str(e)}")
+
+                if delete_errors:
+                    st.error("\n".join(delete_errors))
+                else:
+                    st.success("✅ All existing Supabase table data deleted.")
+
+                    # Now re-upload all CSVs to Supabase
+                    csv_table_mapping = {
+                        "timetable.csv": ("timetable", None),
+                        "sitting_plan.csv": ("sitting_plan", None), 
+                        "assigned_seats.csv": ("assigned_seats", None),
+                        "exam_team_members.csv": ("exam_team_members", None),
+                        "shift_assignments.csv": ("shift_assignments", None),
+                        "room_invigilator_assignments.csv": ("room_invigilator_assignments", None),
+                        "cs_reports.csv": ("cs_reports", None)
+                    }
+
+                    st.markdown("### 📤 Uploading all CSVs to Supabase...")
+                    for file, (table, keys) in csv_table_mapping.items():
+                        success, msg = upload_csv_to_supabase(table, file, unique_cols=keys)
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.warning(msg)
+
         
         elif admin_option == "Remuneration Bill Generation":
             st.subheader("💰 Remuneration Bill Generation")
@@ -4055,6 +4058,8 @@ elif menu == "Centre Superintendent Panel":
                     st.dataframe(display_room_inv_df)
                 else:
                     st.info("No room invigilator assignments saved yet.")
+                    
+                    
 
 
         elif cs_panel_option == "Report Exam Session":
