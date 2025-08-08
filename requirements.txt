@@ -1,10 +1,7 @@
 streamlit
 pandas
-openpyxl
-firebase-admin
-fitz
-sqlalchemy
-psycopg2-binary
 PyMuPDF
-frontend
-
+openpyxl
+requests
+supabase
+numpy
