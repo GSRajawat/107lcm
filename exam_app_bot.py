@@ -392,6 +392,8 @@ def load_data():
     sitting_plan_df = pd.DataFrame()
     timetable_df = pd.DataFrame()
     assigned_seats_df = pd.DataFrame() # Initialize assigned_seats_df
+    attestation_df = pd.DataFrame() # <-- Initialize attestation_df here
+
 
     if os.path.exists(SITTING_PLAN_FILE):
         try:
