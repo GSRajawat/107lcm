@@ -2005,7 +2005,7 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
 def display_report_panel():
     st.subheader("📊 Exam Session Reports")
 
-    sitting_plan, timetable, assigned_seats_df = load_data() # Load assigned_seats_df here
+    sitting_plan, timetable, attestation_df, assigned_seats_df = load_data() # Load assigned_seats_df here
     all_reports_df = load_cs_reports_csv()
     room_invigilators_df = load_room_invigilator_assignments() # Load room invigilators
 
@@ -3759,10 +3759,9 @@ elif menu == "Admin Panel":
             # Ensure 'Date' column is datetime for sorting and grouping in calculate_remuneration
             # The function itself will convert to datetime, here we just load
             
-            # Load assigned_seats_df for Class 3/4 worker calculation
-            _, _, assigned_seats_df_for_remuneration = load_data()
-            # Load timetable for date parsing in duty dates and for class filtering
-            _, timetable_df_for_remuneration, _ = load_data()
+            _, _, assigned_seats_df_for_remuneration, _ = load_data()
+
+            _, timetable_df_for_remuneration, _, _ = load_data()
 
             if shift_assignments_df.empty and room_invigilator_assignments_df.empty:
                 st.warning("No shift or room invigilator assignments found. Please make assignments first.")
