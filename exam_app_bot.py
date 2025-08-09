@@ -175,22 +175,21 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
 
         # Convert to records and ensure all NaN/None values are properly handled
         records = df.to_dict(orient='records')
-        
+
         # Final cleanup of records
         cleaned_records = []
         for record in records:
             cleaned_record = {}
             for key, value in record.items():
-                if pd.isna(value) or value is None or \
-                   (isinstance(value, float) and not np.isfinite(value)):
+                if isinstance(value, list):
+                    # Keep lists as they are for JSONB/ARRAY fields
+                    cleaned_record[key] = value if value else None
+                elif value is None or (not isinstance(value, list) and pd.isna(value)):
                     cleaned_record[key] = None
                 elif isinstance(value, (np.int64, np.int32)):
                     cleaned_record[key] = int(value)
                 elif isinstance(value, (np.float64, np.float32)):
-                    if np.isfinite(value):
-                        cleaned_record[key] = float(value)
-                    else:
-                        cleaned_record[key] = None
+                    cleaned_record[key] = float(value) if np.isfinite(value) else None
                 else:
                     cleaned_record[key] = value
             cleaned_records.append(cleaned_record)
@@ -418,7 +417,14 @@ def load_data():
         except Exception as e:
             st.error(f"Error loading {TIMETABLE_FILE}: {e}")
             timetable_df = pd.DataFrame()
-    
+    if os.path.exists(ATTESTATION_DATA_FILE):
+        try:
+            attestation_df = pd.read_csv(ATTESTATION_DATA_FILE, dtype={"Roll Number": str, "Enrollment Number": str})
+            attestation_df.columns = attestation_df.columns.str.strip()
+        except Exception as e:
+            st.error(f"Error loading {ATTESTATION_DATA_FILE}: {e}")
+            attestation_df = pd.DataFrame()
+ 
     if os.path.exists(ASSIGNED_SEATS_FILE):
         try:
             # Ensure Room Number and Roll Number are read as string to prevent type mismatch issues
@@ -432,7 +438,7 @@ def load_data():
     else:
         assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
             
-    return sitting_plan_df, timetable_df, assigned_seats_df
+    return sitting_plan_df, timetable_df, assigned_seats_df, attestation_df
 
 # Save uploaded files (for admin panel)
 def save_uploaded_file(uploaded_file_content, filename):
@@ -455,6 +461,7 @@ def save_uploaded_file(uploaded_file_content, filename):
         return True, f"File {filename} saved successfully!" # Modified: Return a tuple here
     except Exception as e:
         return False, f"Error saving file {filename}: {e}"
+
 
 # Admin login (simple hardcoded credentials)
 def admin_login():
@@ -1804,6 +1811,193 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
 
     return "".join(output_string_parts)
 
+# Function to generate UFM print form
+# Corrected function to generate UFM print form
+def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, timetable_df,
+                            report_date, report_shift, report_paper_code, report_paper_name):
+    """
+    Generates a printable UFM form for a given roll number within a specific exam context.
+
+    Args:
+        ufm_roll_number (str): The roll number of the student with UFM.
+        attestation_df (pd.DataFrame): DataFrame loaded from attestation_data_combined.csv.
+        assigned_seats_df (pd.DataFrame): DataFrame containing assigned seats information.
+        timetable_df (pd.DataFrame): DataFrame containing the examination timetable.
+        report_date (str): The date of the exam session (DD-MM-YYYY).
+        report_shift (str): The shift of the exam session (Morning/Evening).
+        report_paper_code (str): The paper code of the exam session.
+        report_paper_name (str): The paper name of the exam session.
+
+    Returns:
+        str: A formatted string containing the UFM print form details, or an error message.
+    """
+    ufm_roll_number = str(ufm_roll_number).strip()
+
+    # Retrieve student details from attestation_df
+    student_details = attestation_df[attestation_df['Roll Number'].astype(str).str.strip() == ufm_roll_number]
+    if student_details.empty:
+        return f"Error: Student with Roll Number {ufm_roll_number} not found in attestation data."
+    student_detail = student_details.iloc[0]
+
+    # Get exam details specific to the UFM incident from assigned_seats and timetable
+    relevant_assigned_seat = assigned_seats_df[
+        (assigned_seats_df['Roll Number'].astype(str).str.strip() == ufm_roll_number) &
+        (assigned_seats_df['Date'].astype(str).str.strip() == report_date) &
+        (assigned_seats_df['Shift'].astype(str).str.strip() == report_shift) &
+        (assigned_seats_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
+        (assigned_seats_df['Paper Name'].astype(str).str.strip() == report_paper_name)
+    ]
+    
+    exam_room_number = "N/A"
+    exam_paper_code = _format_paper_code(report_paper_code)
+    exam_paper_name = report_paper_name
+    exam_time = "N/A"
+    exam_class = "N/A"
+
+    if not relevant_assigned_seat.empty:
+        assigned_info = relevant_assigned_seat.iloc[0]
+        exam_room_number = str(assigned_info['Room Number']).strip()
+        
+        matching_timetable_entry = timetable_df[
+            (timetable_df['Date'].astype(str).str.strip() == report_date) &
+            (timetable_df['Shift'].astype(str).str.strip() == report_shift) &
+            (timetable_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
+            (timetable_df['Paper Name'].astype(str).str.strip() == report_paper_name)
+        ]
+        if not matching_timetable_entry.empty:
+            exam_time = str(matching_timetable_entry.iloc[0]['Time']).strip()
+            exam_class = str(matching_timetable_entry.iloc[0]['Class']).strip()
+    else:
+        # Fallback if student is UFM'd but not found in assigned_seats for that specific session.
+        matching_timetable_entry = timetable_df[
+            (timetable_df['Date'].astype(str).str.strip() == report_date) &
+            (timetable_df['Shift'].astype(str).str.strip() == report_shift) &
+            (timetable_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
+            (timetable_df['Paper Name'].astype(str).str.strip() == report_paper_name)
+        ]
+        if not matching_timetable_entry.empty:
+            exam_time = str(matching_timetable_entry.iloc[0]['Time']).strip()
+            exam_class = str(matching_timetable_entry.iloc[0]['Class']).strip()
+        else:
+            exam_time = "Not Found in Timetable"
+            exam_class = "Not Found in Timetable"
+
+
+    form_parts = []
+    form_parts.append("--- UFM Case Print Form ---")
+    form_parts.append("\n**1. Jiwaji University, Gwalior**")
+    form_parts.append(f"\n**2. Class:** {exam_class} - {datetime.datetime.now().strftime('%B')}-{datetime.datetime.now().year}-Examination")
+    form_parts.append(f"\n**3. Roll Number:** {ufm_roll_number}")
+    form_parts.append(f"\n**4. Name of Student:** {student_detail.get('Name', 'N/A')}")
+    form_parts.append(f"   **Address:** {student_detail.get('Address', 'N/A')}")
+    form_parts.append(f"\n**5. Father's Name:** {student_detail.get('Father\'s Name', 'N/A')}")
+    form_parts.append(f"\n**6. College Name:** {student_detail.get('College Name', 'N/A')}")
+    form_parts.append(f"\n**7. Exam Center Name:** {student_detail.get('Exam Centre', 'N/A')} Code: G107")
+    form_parts.append(f"\n**8. Paper Code & Paper Name:** {exam_paper_code} - {exam_paper_name}")
+    form_parts.append(f"\n**9. Date:** {report_date}")
+    form_parts.append(f"**10. Time:** {report_shift} Shift ({exam_time})")
+    form_parts.append(f"\n**11. Time of UFM:** _________________________")
+    form_parts.append(f"**12. Name of Book/Material:** _________________________")
+    form_parts.append(f"**13. Number of pages/details:** _________________________")
+    form_parts.append(f"\n**Room Number (where UFM occurred):** {exam_room_number}")
+    form_parts.append("\n\n_________________________")
+    form_parts.append("Signature of Invigilator(s)")
+    form_parts.append("\n\n_________________________")
+    form_parts.append("Signature of Centre Superintendent")
+    form_parts.append("\n\n--- End of UFM Case Print Form ---")
+
+    return "\n".join(form_parts)
+
+
+    def _generate_ufm_print_form_with_context(ufm_roll_number, attestation_df, assigned_seats_df, timetable_df,
+                                              report_date, report_shift, report_paper_code, report_paper_name):
+        """
+        Generates a printable UFM form for a given roll number within a specific exam context.
+        """
+        ufm_roll_number = str(ufm_roll_number).strip()
+
+        # Retrieve student details from attestation_df
+        student_details = attestation_df[attestation_df['Roll Number'].astype(str).str.strip() == ufm_roll_number]
+        if student_details.empty:
+            return f"Error: Student with Roll Number {ufm_roll_number} not found in attestation data."
+        student_detail = student_details.iloc[0]
+
+        # Get exam details specific to the UFM incident from assigned_seats and timetable
+        # Filter assigned_seats by roll number, date, shift, paper code, paper name
+        relevant_assigned_seat = assigned_seats_df[
+            (assigned_seats_df['Roll Number'].astype(str).str.strip() == ufm_roll_number) &
+            (assigned_seats_df['Date'].astype(str).str.strip() == report_date) &
+            (assigned_seats_df['Shift'].astype(str).str.strip() == report_shift) &
+            (assigned_seats_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
+            (assigned_seats_df['Paper Name'].astype(str).str.strip() == report_paper_name)
+        ]
+        
+        exam_room_number = "N/A"
+        exam_paper_code = _format_paper_code(report_paper_code)
+        exam_paper_name = report_paper_name
+        exam_time = "N/A"
+        exam_class = "N/A" # Will get from timetable
+
+        if not relevant_assigned_seat.empty:
+            assigned_info = relevant_assigned_seat.iloc[0]
+            exam_room_number = str(assigned_info['Room Number']).strip()
+            
+            # Get exam time and class from timetable using date, shift, paper code, paper name
+            matching_timetable_entry = timetable_df[
+                (timetable_df['Date'].astype(str).str.strip() == report_date) &
+                (timetable_df['Shift'].astype(str).str.strip() == report_shift) &
+                (timetable_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
+                (timetable_df['Paper Name'].astype(str).str.strip() == report_paper_name)
+            ]
+            if not matching_timetable_entry.empty:
+                exam_time = str(matching_timetable_entry.iloc[0]['Time']).strip()
+                exam_class = str(matching_timetable_entry.iloc[0]['Class']).strip()
+        else:
+            # Fallback if student is UFM'd but not found in assigned_seats for that specific session.
+            # This might happen if they were unassigned but still appeared for exam.
+            # In such cases, we still use the report_paper_code/name but Room will be N/A.
+            matching_timetable_entry = timetable_df[
+                (timetable_df['Date'].astype(str).str.strip() == report_date) &
+                (timetable_df['Shift'].astype(str).str.strip() == report_shift) &
+                (timetable_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
+                (timetable_df['Paper Name'].astype(str).str.strip() == report_paper_name)
+            ]
+            if not matching_timetable_entry.empty:
+                exam_time = str(matching_timetable_entry.iloc[0]['Time']).strip()
+                exam_class = str(matching_timetable_entry.iloc[0]['Class']).strip()
+            else:
+                exam_time = "Not Found in Timetable"
+                exam_class = "Not Found in Timetable"
+
+
+        # Prepare the formatted string
+        form_parts = []
+        form_parts.append("--- UFM Case Print Form ---")
+        form_parts.append("\n**1. Jiwaji University, Gwalior**")
+        form_parts.append(f"\n**2. Class:** {exam_class} - {datetime.datetime.now().strftime('%B')}-{datetime.datetime.now().year}-Examination")
+        form_parts.append(f"\n**3. Roll Number:** {ufm_roll_number}")
+        form_parts.append(f"\n**4. Name of Student:** {student_detail.get('Name', 'N/A')}")
+        form_parts.append(f"   **Address:** {student_detail.get('Address', 'N/A')}")
+        form_parts.append(f"\n**5. Father's Name:** {student_detail.get('Father\'s Name', 'N/A')}")
+        form_parts.append(f"\n**6. College Name:** {student_detail.get('College Name', 'N/A')}")
+        form_parts.append(f"\n**7. Exam Center Name:** {student_detail.get('Exam Centre', 'N/A')} Code: G107")
+        form_parts.append(f"\n**8. Paper Code & Paper Name:** {exam_paper_code} - {exam_paper_name}")
+        form_parts.append(f"\n**9. Date:** {report_date}")
+        form_parts.append(f"**10. Time:** {report_shift} Shift ({exam_time})")
+        form_parts.append(f"\n**11. Time of UFM:** _________________________")
+        form_parts.append(f"**12. Name of Book/Material:** _________________________")
+        form_parts.append(f"**13. Number of pages/details:** _________________________")
+        form_parts.append(f"\n**Room Number (where UFM occurred):** {exam_room_number}")
+        form_parts.append("\n\n_________________________")
+        form_parts.append("Signature of Invigilator(s)")
+        form_parts.append("\n\n_________________________")
+        form_parts.append("Signature of Centre Superintendent")
+        form_parts.append("\n\n--- End of UFM Case Print Form ---")
+
+        return "\n".join(form_parts)
+
+    return _generate_ufm_print_form_with_context # Return the inner function so it can be called with context
+
 
 # Function to display the Report Panel
 def display_report_panel():
@@ -2823,7 +3017,7 @@ st.title("Government Law College, Morena (M.P.) Examination Management System")
 menu = st.radio("Select Module", ["Student View", "Admin Panel", "Centre Superintendent Panel"])
 
 if menu == "Student View":
-    sitting_plan, timetable, assigned_seats_df = load_data() # Load assigned_seats_df here
+    sitting_plan, timetable, attestation_df, assigned_seats_df = load_data() # Load assigned_seats_df here
 
     # Check if dataframes are empty, indicating files were not loaded
     if sitting_plan.empty or timetable.empty:
@@ -3879,9 +4073,9 @@ elif menu == "Centre Superintendent Panel":
         st.success("Login successful!")
 
         # Load data for CS panel
-        sitting_plan, timetable, assigned_seats_df = load_data() # Load assigned_seats_df here
+        sitting_plan, timetable, attestation_df, assigned_seats_df = load_data() # Load assigned_seats_df here
         
-        cs_panel_option = st.radio("Select CS Task:", ["Report Exam Session", "Manage Exam Team & Shift Assignments", "View Full Timetable", "Room Chart Report"]) # Added Room Chart Report
+        cs_panel_option = st.radio("Select CS Task:", ["Report Exam Session", "Manage Exam Team & Shift Assignments", "View Full Timetable", "Room Chart Report", "Generate UFM Print Form"])
 
         if cs_panel_option == "Manage Exam Team & Shift Assignments":
             st.subheader("👥 Manage Exam Team Members")
@@ -4252,6 +4446,124 @@ elif menu == "Centre Superintendent Panel":
                                     ])
                                 else:
                                     st.info("No reports saved yet.")
+
+
+        # ... (previous cs_panel_option elif blocks) ...
+
+        elif cs_panel_option == "Generate UFM Print Form":
+            st.subheader("🖨️ Generate UFM Print Form")
+            st.info("Select a session date and shift to view reported UFM cases and generate their print forms.")
+
+            # Load all data, including attestation_df
+            sitting_plan, timetable, assigned_seats_df, attestation_df = load_data()
+            all_cs_reports_df = load_cs_reports_csv()
+
+            if attestation_df.empty:
+                st.warning("Attestation data ('attestation_data_combined.csv') is missing. Please upload it via the Admin Panel to generate UFM forms.")
+                st.stop()
+            if all_cs_reports_df.empty:
+                st.info("No CS reports available yet. UFM cases must be reported first in 'Report Exam Session'.")
+                st.stop()
+
+            # Get unique dates and shifts from reports that have UFM cases
+            reports_with_ufm = all_cs_reports_df[all_cs_reports_df['ufm_roll_numbers'].apply(lambda x: len(x) > 0)]
+
+            if reports_with_ufm.empty:
+                st.info("No UFM cases have been reported yet in any session.")
+                st.stop()
+
+            unique_report_dates = sorted(reports_with_ufm['date'].unique())
+            unique_report_shifts = sorted(reports_with_ufm['shift'].unique())
+
+            selected_ufm_report_date = st.selectbox("Select Date of UFM Report", unique_report_dates, key="ufm_report_date_select")
+            selected_ufm_report_shift = st.selectbox("Select Shift of UFM Report", unique_report_shifts, key="ufm_report_shift_select")
+
+            # Filter reports for the selected date and shift
+            filtered_ufm_reports = reports_with_ufm[
+                (reports_with_ufm['date'] == selected_ufm_report_date) &
+                (reports_with_ufm['shift'] == selected_ufm_report_shift)
+            ]
+
+            # Extract all unique UFM roll numbers for the selected date/shift and paper info
+            ufm_roll_numbers_details = [] # Stores (roll_num, paper_code, paper_name, room_num)
+            for _, row in filtered_ufm_reports.iterrows():
+                room = str(row['room_num']).strip()
+                paper_code = str(row['paper_code']).strip()
+                paper_name = str(row['paper_name']).strip()
+                for ufm_roll in row['ufm_roll_numbers']:
+                    ufm_roll_numbers_details.append({
+                        "roll_number": ufm_roll,
+                        "paper_code": paper_code,
+                        "paper_name": paper_name,
+                        "room_num": room,
+                        "display": f"{ufm_roll} - {room} - {paper_code} ({paper_name})"
+                    })
+
+            if not ufm_roll_numbers_details:
+                st.info("No UFM cases found for the selected date and shift.")
+            else:
+                ufm_options = [d["display"] for d in ufm_roll_numbers_details]
+                selected_ufm_display = st.multiselect(
+                    "Select UFM Roll Number(s) to Generate Form",
+                    options=ufm_options,
+                    key="select_ufm_roll_for_form"
+                )
+
+                if st.button("Generate UFM Form(s)"):
+                    if not selected_ufm_display:
+                        st.warning("Please select at least one UFM roll number.")
+                    else:
+                        all_generated_forms = []
+                        for display_string in selected_ufm_display:
+                            # Find the corresponding detail dictionary
+                            selected_detail = next(item for item in ufm_roll_numbers_details if item["display"] == display_string)
+
+                            ufm_roll = selected_detail["roll_number"]
+                            ufm_paper_code = selected_detail["paper_code"]
+                            ufm_paper_name = selected_detail["paper_name"]
+
+                            # Get the actual UFM form generation function
+                            generate_ufm_form_func = generate_ufm_print_form(
+                                ufm_roll, 
+                                attestation_df, 
+                                assigned_seats_df, 
+                                timetable,
+                                # Pass context for accurate data retrieval
+                                selected_ufm_report_date,
+                                selected_ufm_report_shift,
+                                ufm_paper_code,
+                                ufm_paper_name
+                            )
+
+                            if "Error:" in generate_ufm_form_func:
+                                st.error(generate_ufm_form_func)
+                            else:
+                                all_generated_forms.append(generate_ufm_form_func)
+                                st.subheader(f"UFM Form for Roll Number: {ufm_roll}")
+                                st.text_area(f"Form for {ufm_roll}", generate_ufm_form_func, height=600)
+
+                                # Download button for individual UFM form
+                                ufm_file_name = f"UFM_Form_{ufm_roll}_{selected_ufm_report_date.replace('-', '')}_{ufm_paper_code}.txt"
+                                st.download_button(
+                                    label=f"Download Form for {ufm_roll}",
+                                    data=generate_ufm_form_func.encode('utf-8'),
+                                    file_name=ufm_file_name,
+                                    mime="text/plain",
+                                    key=f"download_ufm_{ufm_roll}"
+                                )
+                                st.markdown("---") # Separator between forms
+
+                        if len(all_generated_forms) > 1:
+                            combined_forms_text = "\n\n" + "-"*50 + "\n\n".join(all_generated_forms)
+                            combined_file_name = f"Combined_UFM_Forms_{selected_ufm_report_date.replace('-', '')}_{selected_ufm_report_shift}.txt"
+                            st.download_button(
+                                label="Download All Selected UFM Forms (Combined)",
+                                data=combined_forms_text.encode('utf-8'),
+                                file_name=combined_file_name,
+                                mime="text/plain",
+                                key="download_all_ufm_forms"
+                            )
+
 
         elif cs_panel_option == "View Full Timetable": # New section for CS timetable view
             st.subheader("Full Examination Timetable")
