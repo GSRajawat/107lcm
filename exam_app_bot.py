@@ -3079,7 +3079,7 @@ elif menu == "Admin Panel":
         st.success("Login successful!")
         
         # Load data here, inside the successful login block
-        sitting_plan, timetable, assigned_seats_df = load_data()
+        sitting_plan, timetable, attestation_df, assigned_seats_df = load_data()
 
         
         
