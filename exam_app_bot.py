@@ -527,22 +527,18 @@ import os
 def load_shift_assignments():
     if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
         try:
-            # Use a robust engine to handle inconsistent data
-            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE, engine='python')
+            # Use engine='python' and set encoding to 'utf-8-sig' for robust parsing
+            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE, engine='python', encoding='utf-8-sig')
             
             def safe_literal_eval(val):
                 if isinstance(val, str) and val.strip():
-                    # Strip any surrounding quotes and whitespace
                     clean_val = val.strip().strip('"')
                     try:
-                        # Safely convert the cleaned string to a list
                         return ast.literal_eval(clean_val)
                     except (ValueError, SyntaxError):
-                        # If conversion fails, return an empty list
                         return []
                 return []
 
-            # Apply the safe parser to all relevant columns
             for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", 
                          "permanent_invigilator", "assistant_permanent_invigilator", 
                          "class_3_worker", "class_4_worker"]:
@@ -550,17 +546,18 @@ def load_shift_assignments():
                     df[role] = df[role].apply(safe_literal_eval)
 
             return df
-
+            
         except Exception as e:
-            # st.error(f"Error loading shift assignments: {e}. Reinitializing shift assignments file.")
+            # Add this to see the full error in the Streamlit logs
+            st.error(f"Error loading shift assignments: {e}. Check Streamlit logs for details.")
             return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
                                          "assistant_center_superintendent", "permanent_invigilator", 
                                          "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
 
-    # If the file doesn't exist, create an empty DataFrame
     return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
-                                 "assistant_center_superintendent", "permanent_invigilator", 
-                                 "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
+                                 "assistant_permanent_invigilator", "class_3_worker", "class_4_worker", 
+                                 "permanent_invigilator", "assistant_permanent_invigilator"])
+
 def save_shift_assignment(date, shift, assignments):
     assignments_df = load_shift_assignments()
     
