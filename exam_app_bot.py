@@ -17,7 +17,6 @@ from supabase import create_client, Client
 import datetime
 import numpy as np
 import traceback
-import csv
 
 
 # Initialize Supabase
@@ -513,74 +512,44 @@ def _format_paper_code(code_str):
         return s[:-2]
     return s
 
-import pandas as pd
-import ast
-import os
 
-# Your existing function code...
-
-import pandas as pd
-import ast
-import os
-
-# Your existing function code...
 def load_shift_assignments():
-    file_path = SHIFT_ASSIGNMENTS_FILE  # Ensure this variable holds the correct path
-
-    if not os.path.exists(file_path):
-        st.error(f"Error: Shift assignments file not found at {file_path}")
-        return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
-                                     "assistant_center_superintendent", "permanent_invigilator", 
-                                     "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
-
-    try:
-        # Use a robust engine and quoting rules for inconsistent files
-        df = pd.read_csv(
-            file_path,
-            engine='python',
-            encoding='utf-8-sig',
-            on_bad_lines='skip',
-            quoting=csv.QUOTE_NONE
-        )
-
-        # Manually set column names to ensure consistency
-        df.columns = [
-            'date', 'shift', 'senior_center_superintendent', 
-            'center_superintendent', 'assistant_center_superintendent', 
-            'permanent_invigilator', 'assistant_permanent_invigilator', 
-            'class_3_worker', 'class_4_worker'
-        ]
-
-        def safe_list_parser(val):
-            if isinstance(val, str) and val.strip():
-                try:
+    if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
+        try:
+            # Use a robust engine to handle inconsistent data
+            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE, engine='python')
+            
+            def safe_literal_eval(val):
+                if isinstance(val, str) and val.strip():
+                    # Strip any surrounding quotes and whitespace
                     clean_val = val.strip().strip('"')
-                    return [item.strip().strip("'") for item in clean_val.strip('[]').split(',')]
-                except:
-                    return []
-            return []
+                    try:
+                        # Safely convert the cleaned string to a list
+                        return ast.literal_eval(clean_val)
+                    except (ValueError, SyntaxError):
+                        # If conversion fails, return an empty list
+                        return []
+                return []
 
-        for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", 
-                     "permanent_invigilator", "assistant_permanent_invigilator", 
-                     "class_3_worker", "class_4_worker"]:
-            if role in df.columns:
-                df[role] = df[role].apply(safe_list_parser)
+            # Apply the safe parser to all relevant columns
+            for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", 
+                         "permanent_invigilator", "assistant_permanent_invigilator", 
+                         "class_3_worker", "class_4_worker"]:
+                if role in df.columns:
+                    df[role] = df[role].apply(safe_literal_eval)
 
-        # Check if the DataFrame is empty after parsing
-        if df.empty:
-            st.error("Warning: The loaded shift assignments file is empty.")
+            return df
+
+        except Exception as e:
+            # st.error(f"Error loading shift assignments: {e}. Reinitializing shift assignments file.")
             return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
                                          "assistant_center_superintendent", "permanent_invigilator", 
                                          "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
 
-        return df
-
-    except Exception as e:
-        st.error(f"Error reading shift assignments file: {e}")
-        return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
-                                     "assistant_center_superintendent", "permanent_invigilator", 
-                                     "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
-    
+    # If the file doesn't exist, create an empty DataFrame
+    return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
+                                 "assistant_center_superintendent", "permanent_invigilator", 
+                                 "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
 def save_shift_assignment(date, shift, assignments):
     assignments_df = load_shift_assignments()
     
@@ -1825,8 +1794,8 @@ def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_
         return
 
     # Date and Shift filters for the report
-    report_date_options = sorted(timetable_df["Date"].dropna().unique())
-    report_shift_options = sorted(timetable_df["Shift"].dropna().unique())
+    report_date_options = sorted(timetable_df["date"].dropna().unique())
+    report_shift_options = sorted(timetable_df["shift"].dropna().unique())
 
     if not report_date_options or not report_shift_options:
         st.info("No exam dates or shifts found in the timetable to generate a report.")
@@ -2671,8 +2640,8 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
 
     # Process shift assignments (all shifts, for conveyance and Senior CS daily rate)
     for index, row in shift_assignments_df.iterrows():
-        current_date = row['date']
-        current_shift = row['shift']
+        current_date = row['Date']
+        current_shift = row['Shift']
 
         for role_col in remuneration_rules.keys():
             if role_col in row and isinstance(row[role_col], list):
@@ -2693,8 +2662,8 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
 
     # Process room invigilator assignments (all shifts, for conveyance)
     for index, row in room_invigilator_assignments_df.iterrows():
-        current_date = row['date']
-        current_shift = row['shift']
+        current_date = row['Date']
+        current_shift = row['Shift']
         invigilators_list = row['invigilators']
 
         for invigilator in invigilators_list:
