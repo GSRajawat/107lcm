@@ -503,6 +503,15 @@ def _format_paper_code(code_str):
         return s[:-2]
     return s
 
+def _format_paper_code(code_str):
+    if pd.isna(code_str) or not code_str:
+        return ""
+    s = str(code_str).strip()
+    # If it looks like a float (e.g., "12345.0"), convert to int string
+    if s.endswith('.0') and s[:-2].isdigit():
+        return s[:-2]
+    return s
+
 def load_shift_assignments():
     if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
         try:
@@ -572,6 +581,100 @@ def _format_paper_code(code_str):
     if s.endswith('.0') and s[:-2].isdigit():
         return s[:-2]
     return s
+
+def load_data():
+    # Initialize all DataFrames at the beginning
+    sitting_plan_df = pd.DataFrame()
+    timetable_df = pd.DataFrame()
+    assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+    attestation_df = pd.DataFrame()
+
+    # --- Load sitting_plan_df ---
+    if os.path.exists(SITTING_PLAN_FILE):
+        try:
+            sitting_plan_df = pd.read_csv(SITTING_PLAN_FILE, dtype={
+                f"Roll Number {i}": str for i in range(1, 11)
+            })
+            # Robustly clean column names: strip whitespace from all and replace problematic chars
+            sitting_plan_df.columns = sitting_plan_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+            
+            if 'Paper Code' in sitting_plan_df.columns:
+                sitting_plan_df['Paper Code'] = sitting_plan_df['Paper Code'].apply(_format_paper_code)
+        except Exception as e:
+            st.error(f"Error loading {SITTING_PLAN_FILE}: {e}")
+            sitting_plan_df = pd.DataFrame()
+
+    # --- Load timetable_df ---
+    if os.path.exists(TIMETABLE_FILE):
+        try:
+            timetable_df = pd.read_csv(TIMETABLE_FILE)
+            # Robustly clean column names
+            timetable_df.columns = timetable_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+            
+            if 'Paper Code' in timetable_df.columns:
+                timetable_df['Paper Code'] = timetable_df['Paper Code'].apply(_format_paper_code)
+        except Exception as e:
+            st.error(f"Error loading {TIMETABLE_FILE}: {e}")
+            timetable_df = pd.DataFrame()
+    
+    # --- Load assigned_seats_df ---
+    if os.path.exists(ASSIGNED_SEATS_FILE):
+        try:
+            # Read as strings first to avoid dtype issues with mixed types or weird characters
+            temp_assigned_df = pd.read_csv(ASSIGNED_SEATS_FILE, dtype=str)
+            
+            # Robustly clean column names immediately after reading
+            # This handles any leading/trailing spaces, BOM, or non-breaking spaces
+            temp_assigned_df.columns = temp_assigned_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+
+            # Explicitly rename truncated/misnamed columns if they exist after initial stripping
+            # Only rename if the *source* column exists.
+            rename_map = {}
+            if 'Roll Numb' in temp_assigned_df.columns: # Example of old truncated name
+                rename_map['Roll Numb'] = 'Roll Number'
+            if 'Paper Cod' in temp_assigned_df.columns: # Example of old truncated name
+                rename_map['Paper Cod'] = 'Paper Code'
+            if 'Paper Nan' in temp_assigned_df.columns: # From your screenshot
+                rename_map['Paper Nan'] = 'Paper Name'
+            if 'Room Nur' in temp_assigned_df.columns: # From your screenshot
+                rename_map['Room Nur'] = 'Room Number'
+            if 'Seat Numi' in temp_assigned_df.columns: # From your screenshot
+                rename_map['Seat Numi'] = 'Seat Number'
+
+            if rename_map:
+                temp_assigned_df.rename(columns=rename_map, inplace=True)
+            
+            # Now, after potential renaming and aggressive cleaning, ensure the required columns are present.
+            # If 'Paper Code' is still not there, it means the source file genuinely lacks it or has an unrecognized variant.
+            required_assigned_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"]
+            missing_cols = [col for col in required_assigned_cols if col not in temp_assigned_df.columns]
+
+            if missing_cols:
+                st.error(f"Critical Error: Missing essential columns in {ASSIGNED_SEATS_FILE}: {missing_cols}. Please verify the file content and try re-uploading via Admin Panel.")
+                assigned_seats_df = pd.DataFrame(columns=required_assigned_cols) # Return empty DataFrame with correct columns
+            else:
+                # Select only the required columns and ensure correct order, then proceed with type conversions/formatting
+                assigned_seats_df = temp_assigned_df[required_assigned_cols].copy() 
+                assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].apply(_format_paper_code)
+                # Ensure all are strings as per original intent for safety
+                for col in ["Roll Number", "Room Number", "Seat Number", "Date", "Shift"]:
+                    if col in assigned_seats_df.columns: # Double-check column existence after selection
+                        assigned_seats_df[col] = assigned_seats_df[col].astype(str)
+
+        except Exception as e:
+            st.error(f"Error loading {ASSIGNED_SEATS_FILE}: {e}. Ensure it's a valid CSV file.")
+            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+    
+    # --- Load attestation_df ---
+    if os.path.exists(ATTESTATION_DATA_FILE):
+        try:
+            attestation_df = pd.read_csv(ATTESTATION_DATA_FILE, dtype={"Roll Number": str, "Enrollment Number": str})
+            attestation_df.columns = attestation_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+        except Exception as e:
+            st.error(f"Error loading {ATTESTATION_DATA_FILE}: {e}. Ensure it's a valid CSV file.")
+            attestation_df = pd.DataFrame()
+            
+    return sitting_plan_df, timetable_df, assigned_seats_df, attestation_df
 
 
 # Save uploaded files (for admin panel)
@@ -3892,18 +3995,15 @@ elif menu == "Admin Panel":
 
                     st.markdown("### 📤 Uploading all CSVs to Supabase...")
                     for file, (table, keys) in csv_table_mapping.items():
-                        # For attestation, read from parent folder
-                        if file == "attestation_data_combined.csv":
-                            current_script_dir = os.path.dirname(os.path.abspath(__file__))
-                            parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
-                            full_path_attestation = os.path.join(parent_dir, file)
-                            if os.path.exists(full_path_attestation):
-                                success, msg = upload_csv_to_supabase(table, full_path_attestation, unique_cols=keys)
-                            else:
-                                success, msg = False, f"File not found for upload: {full_path_attestation}"
+                        # Use the corrected logic to handle the file path
+                        current_script_dir = os.path.dirname(os.path.abspath(__file__))
+                        full_path = os.path.join(current_script_dir, file)
+                        
+                        if os.path.exists(full_path):
+                            success, msg = upload_csv_to_supabase(table, full_path, unique_cols=keys)
                         else:
-                            success, msg = upload_csv_to_supabase(table, file, unique_cols=keys)
-
+                            success, msg = False, f"File not found for upload: {full_path}"
+                        
                         if success:
                             st.success(msg)
                         else:
