@@ -54,11 +54,6 @@ except KeyError:
 # --- CORRECTED: upload_csv_to_supabase function ---
 def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
     try:
-        import pandas as pd
-        import numpy as np
-        import json
-        import ast
-        import datetime # <--- ADD THIS IMPORT
 
         df = pd.read_csv(csv_path)
         df.columns = df.columns.str.strip()
@@ -283,7 +278,7 @@ def download_supabase_to_csv(table_name, filename):
         'roll_number': 'Roll Number', 'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
         'room_number': 'Room Number', 'seat_number': 'Seat Number', 'date': 'Date',
         'shift': 'Shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper',
-        'name': 'name',
+        'name': 'Name',
         'roll_number_1': 'Roll Number 1', 'roll_number_2': 'Roll Number 2',
         'roll_number_3': 'Roll Number 3', 'roll_number_4': 'Roll Number 4',
         'roll_number_5': 'Roll Number 5', 'roll_number_6': 'Roll Number 6',
@@ -797,14 +792,14 @@ def load_exam_team_members():
     if os.path.exists(EXAM_TEAM_MEMBERS_FILE):
         try:
             df = pd.read_csv(EXAM_TEAM_MEMBERS_FILE)
-            return df['name'].tolist()
+            return df['Name'].tolist()
         except Exception as e:
             st.error(f"Error loading exam team members: {e}")
             return []
     return []
 
 def save_exam_team_members(members):
-    df = pd.DataFrame({'name': sorted(list(set(members)))}) # Remove duplicates and sort
+    df = pd.DataFrame({'Name': sorted(list(set(members)))}) # Remove duplicates and sort
     try:
         df.to_csv(EXAM_TEAM_MEMBERS_FILE, index=False)
         return True, "Exam team members saved successfully!"
@@ -2319,8 +2314,8 @@ def display_report_panel():
 
     # Merge with room_invigilators_df to add invigilator info
     if not room_invigilators_df.empty:
-        room_invigilators_df['Date'] = room_invigilators_df['date'].astype(str).str.strip()
-        room_invigilators_df['Shift'] = room_invigilators_df['shift'].astype(str).str.strip().str.lower()
+        room_invigilators_df['date'] = room_invigilators_df['Date'].astype(str).str.strip()
+        room_invigilators_df['shift'] = room_invigilators_df['Shift'].astype(str).str.strip().str.lower()
         room_invigilators_df['room_num'] = room_invigilators_df['room_num'].astype(str).str.strip()
 
         merged_reports_df = pd.merge(
@@ -4683,6 +4678,9 @@ elif menu == "Centre Superintendent Panel":
                                 all_reports_df_display = load_cs_reports_csv()
                                 room_invigilators_df_display = load_room_invigilator_assignments()
 
+                                # CORRECT: Standardize column names immediately after loading the DataFrame
+                                room_invigilators_df_display.columns = room_invigilators_df_display.columns.str.lower()
+
                                 if not all_reports_df_display.empty:
                                     # Merge with room invigilators for display
                                     if not room_invigilators_df_display.empty:
@@ -4693,6 +4691,7 @@ elif menu == "Centre Superintendent Panel":
                                             how='left',
                                             suffixes=('', '_room_inv_display')
                                         )
+
                                         all_reports_df_display['invigilators'] = all_reports_df_display['invigilators'].apply(lambda x: x if isinstance(x, list) else [])
                                     else:
                                         all_reports_df_display['invigilators'] = [[]] * len(all_reports_df_display)
@@ -4702,6 +4701,10 @@ elif menu == "Centre Superintendent Panel":
                                         "date", "shift", "room_num", "paper_code", "paper_name", "class", 
                                         "invigilators", "absent_roll_numbers", "ufm_roll_numbers", "report_key"
                                     ]
+                                    
+                                    # This line is no longer needed here as it was moved up
+                                    # room_invigilators_df_display.columns = room_invigilators_df_display.columns.str.lower()
+
                                     # Map internal keys to display keys
                                     df_all_reports_display = all_reports_df_display.rename(columns={
                                         'date': 'Date', 'shift': 'Shift', 'room_num': 'Room',
@@ -4719,7 +4722,7 @@ elif menu == "Centre Superintendent Panel":
                                     
                                     st.dataframe(df_all_reports_display[
                                         ['Date', 'Shift', 'Room', 'Paper Code', 'Paper Name', 'Class', 
-                                         'Invigilators', 'Absent Roll Numbers', 'UFM Roll Numbers', 'Report Key']
+                                            'Invigilators', 'Absent Roll Numbers', 'UFM Roll Numbers', 'Report Key']
                                     ])
                                 else:
                                     st.info("No reports saved yet.")
