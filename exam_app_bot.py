@@ -525,53 +525,62 @@ import os
 
 # Your existing function code...
 def load_shift_assignments():
-    if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
-        try:
-            # Use a robust engine to handle inconsistent quoting and line endings.
-            # `quoting=csv.QUOTE_NONE` prevents pandas from misinterpreting quotes.
-            # `on_bad_lines='skip'` skips any malformed rows that might break the parser.
-            df = pd.read_csv(
-                SHIFT_ASSIGNMENTS_FILE, 
-                engine='python', 
-                encoding='utf-8-sig', 
-                on_bad_lines='skip', 
-                quoting=csv.QUOTE_NONE
-            )
+    file_path = SHIFT_ASSIGNMENTS_FILE  # Ensure this variable holds the correct path
 
-            # Manually set the column names as they might be corrupted
-            df.columns = [
-                'date', 'shift', 'senior_center_superintendent', 
-                'center_superintendent', 'assistant_center_superintendent', 
-                'permanent_invigilator', 'assistant_permanent_invigilator', 
-                'class_3_worker', 'class_4_worker'
-            ]
-            
-            # A safe function to parse the list strings
-            def safe_literal_eval(val):
-                if isinstance(val, str) and val.strip():
-                    try:
-                        # Use a regex to clean up the string before evaluating
-                        clean_val = re.sub(r'\"|\'|\[|\]', '', val).strip()
-                        return [item.strip() for item in clean_val.split(',') if item.strip()]
-                    except:
-                        return []
-                return []
+    if not os.path.exists(file_path):
+        st.error(f"Error: Shift assignments file not found at {file_path}")
+        return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
+                                     "assistant_center_superintendent", "permanent_invigilator", 
+                                     "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
 
-            # Apply the safe parser to all relevant columns
-            for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", 
-                         "permanent_invigilator", "assistant_permanent_invigilator", 
-                         "class_3_worker", "class_4_worker"]:
-                if role in df.columns:
-                    df[role] = df[role].apply(safe_literal_eval)
-            
-            return df
+    try:
+        # Use a robust engine and quoting rules for inconsistent files
+        df = pd.read_csv(
+            file_path,
+            engine='python',
+            encoding='utf-8-sig',
+            on_bad_lines='skip',
+            quoting=csv.QUOTE_NONE
+        )
 
-        except Exception as e:
-            # st.error(f"Error loading shift assignments: {e}.")
+        # Manually set column names to ensure consistency
+        df.columns = [
+            'date', 'shift', 'senior_center_superintendent', 
+            'center_superintendent', 'assistant_center_superintendent', 
+            'permanent_invigilator', 'assistant_permanent_invigilator', 
+            'class_3_worker', 'class_4_worker'
+        ]
+
+        def safe_list_parser(val):
+            if isinstance(val, str) and val.strip():
+                try:
+                    clean_val = val.strip().strip('"')
+                    return [item.strip().strip("'") for item in clean_val.strip('[]').split(',')]
+                except:
+                    return []
+            return []
+
+        for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", 
+                     "permanent_invigilator", "assistant_permanent_invigilator", 
+                     "class_3_worker", "class_4_worker"]:
+            if role in df.columns:
+                df[role] = df[role].apply(safe_list_parser)
+
+        # Check if the DataFrame is empty after parsing
+        if df.empty:
+            st.error("Warning: The loaded shift assignments file is empty.")
             return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
                                          "assistant_center_superintendent", "permanent_invigilator", 
                                          "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
 
+        return df
+
+    except Exception as e:
+        st.error(f"Error reading shift assignments file: {e}")
+        return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
+                                     "assistant_center_superintendent", "permanent_invigilator", 
+                                     "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
+    
 def save_shift_assignment(date, shift, assignments):
     assignments_df = load_shift_assignments()
     
