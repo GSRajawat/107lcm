@@ -3260,7 +3260,7 @@ def save_bills_to_excel(individual_bills_df, role_summary_df, class_workers_df, 
 
 
 # Main app
-st.title("Government Law College, Morena (M.P.)" \n "Examination Management System")
+st.title("Government Law College, Morena (M.P.) Examination Management System")
 
 menu = st.radio("Select Module", ["Student View", "Admin Panel", "Centre Superintendent Panel"])
 
