@@ -283,7 +283,7 @@ def download_supabase_to_csv(table_name, filename):
         'roll_number': 'Roll Number', 'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
         'room_number': 'Room Number', 'seat_number': 'Seat Number', 'date': 'Date',
         'shift': 'Shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper',
-        'name': 'Name',
+        'name': 'name',
         'roll_number_1': 'Roll Number 1', 'roll_number_2': 'Roll Number 2',
         'roll_number_3': 'Roll Number 3', 'roll_number_4': 'Roll Number 4',
         'roll_number_5': 'Roll Number 5', 'roll_number_6': 'Roll Number 6',
@@ -1794,8 +1794,8 @@ def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_
         return
 
     # Date and Shift filters for the report
-    report_date_options = sorted(timetable_df["date"].dropna().unique())
-    report_shift_options = sorted(timetable_df["shift"].dropna().unique())
+    report_date_options = sorted(timetable_df["Date"].dropna().unique())
+    report_shift_options = sorted(timetable_df["Shift"].dropna().unique())
 
     if not report_date_options or not report_shift_options:
         st.info("No exam dates or shifts found in the timetable to generate a report.")
@@ -4404,8 +4404,8 @@ elif menu == "Centre Superintendent Panel":
             else:
                 current_assignments_df = load_shift_assignments()
                 current_assignment_for_shift = current_assignments_df[
-                    (current_assignments_df['date'] == assignment_date.strftime('%d-%m-%Y')) &
-                    (current_assignments_df['shift'] == assignment_shift)
+                    (current_assignments_df['Date'] == assignment_date.strftime('%d-%m-%Y')) &
+                    (current_assignments_df['Shift'] == assignment_shift)
                 ]
                 
                 loaded_senior_cs = []
