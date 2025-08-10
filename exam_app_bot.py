@@ -17,6 +17,7 @@ from supabase import create_client, Client
 import datetime
 import numpy as np
 import traceback
+import csv
 
 
 # Initialize Supabase
@@ -523,43 +524,53 @@ import ast
 import os
 
 # Your existing function code...
-
 def load_shift_assignments():
     if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
         try:
-            # Use engine='python' for handling inconsistent quoting
-            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE, engine='python')
+            # Use a robust engine to handle inconsistent quoting and line endings.
+            # `quoting=csv.QUOTE_NONE` prevents pandas from misinterpreting quotes.
+            # `on_bad_lines='skip'` skips any malformed rows that might break the parser.
+            df = pd.read_csv(
+                SHIFT_ASSIGNMENTS_FILE, 
+                engine='python', 
+                encoding='utf-8-sig', 
+                on_bad_lines='skip', 
+                quoting=csv.QUOTE_NONE
+            )
+
+            # Manually set the column names as they might be corrupted
+            df.columns = [
+                'date', 'shift', 'senior_center_superintendent', 
+                'center_superintendent', 'assistant_center_superintendent', 
+                'permanent_invigilator', 'assistant_permanent_invigilator', 
+                'class_3_worker', 'class_4_worker'
+            ]
             
-            # A new, more robust function to parse list-like strings
-            def robust_list_parser(val):
+            # A safe function to parse the list strings
+            def safe_literal_eval(val):
                 if isinstance(val, str) and val.strip():
-                    # Remove surrounding quotes and brackets
-                    clean_val = val.strip().strip('"').strip('[').strip(']')
-                    
-                    if clean_val:
-                        # Split by comma and clean each item
-                        items = [item.strip().strip("'") for item in clean_val.split(',')]
-                        return items
+                    try:
+                        # Use a regex to clean up the string before evaluating
+                        clean_val = re.sub(r'\"|\'|\[|\]', '', val).strip()
+                        return [item.strip() for item in clean_val.split(',') if item.strip()]
+                    except:
+                        return []
                 return []
 
-            # Apply the new parser to all relevant columns
+            # Apply the safe parser to all relevant columns
             for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", 
                          "permanent_invigilator", "assistant_permanent_invigilator", 
                          "class_3_worker", "class_4_worker"]:
                 if role in df.columns:
-                    df[role] = df[role].apply(robust_list_parser)
+                    df[role] = df[role].apply(safe_literal_eval)
             
             return df
 
         except Exception as e:
-            # st.error(f"Error loading shift assignments: {e}. Reinitializing shift assignments file.")
+            # st.error(f"Error loading shift assignments: {e}.")
             return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
                                          "assistant_center_superintendent", "permanent_invigilator", 
                                          "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
-
-    return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
-                                 "assistant_center_superintendent", "permanent_invigilator", 
-                                 "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
 
 def save_shift_assignment(date, shift, assignments):
     assignments_df = load_shift_assignments()
