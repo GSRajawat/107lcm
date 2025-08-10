@@ -34,6 +34,8 @@ ATTESTATION_DATA_FILE = "attestation_data_combined.csv" # For rasa_pdf output
 COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv" # For college_statistic output
 
 
+
+
 try:
     SUPABASE_URL = st.secrets["supabase"]["url"]
     SUPABASE_KEY = st.secrets["supabase"]["key"]
@@ -47,12 +49,7 @@ except KeyError:
     st.error("Supabase secrets not found. Please configure `supabase.url` and `supabase.key` in your secrets.toml file.")
     st.stop()
 
-# --- Page Configuration ---
-st.set_page_config(
-    page_title="Exam Management System",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+
 
 # --- CORRECTED: upload_csv_to_supabase function ---
 def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
@@ -237,114 +234,127 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
 
     except Exception as e:
         return False, f"❌ Error uploading to `{table_name}`: {str(e)}"
-
-# --- MODIFIED: download_supabase_to_csv (to handle potential API changes and use traceback) ---
+# --- MODIFIED: download_supabase_to_csv (to handle API exceptions) ---
 def download_supabase_to_csv(table_name, filename):
+    all_data = []
+    limit = 1000
+    offset = 0
+
     try:
-        # Use supabase.from_ for explicit table selection
-        response = supabase.from_(table_name).select("*").limit(1000000).execute()
-        
-        # Check for errors in a way that is robust to different API versions
-        try:
-            if response.error:
-                return False, f"⚠️ Supabase error for '{table_name}': {response.error.message}"
-        except AttributeError:
-            # If `response` doesn't have an `error` attribute, assume it's fine unless data is missing
-            pass
-
-        if not response.data:
-            return True, f"⚠️ No data found in table `{table_name}`. An empty file has been created."
-        
-        df = pd.DataFrame(response.data)
-        
-        # ... (the rest of the function remains the same, including column handling and saving) ...
-        # Remove auto-generated 'id' and 'created_at' columns if they exist
-        columns_to_drop = ['id', 'created_at']
-        df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
-        
-        # Reverse column name mapping (database columns back to CSV headers)
-        reverse_column_mappings = {
-            'roll_number': 'Roll Number', 'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
-            'room_number': 'Room Number', 'seat_number': 'Seat Number', 'date': 'Date',
-            'shift': 'Shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper',
-            'name': 'Name',
-            'roll_number_1': 'Roll Number 1', 'roll_number_2': 'Roll Number 2',
-            'roll_number_3': 'Roll Number 3', 'roll_number_4': 'Roll Number 4',
-            'roll_number_5': 'Roll Number 5', 'roll_number_6': 'Roll Number 6',
-            'roll_number_7': 'Roll Number 7', 'roll_number_8': 'Roll Number 8',
-            'roll_number_9': 'Roll Number 9', 'roll_number_10': 'Roll Number 10',
-            'mode': 'Mode', 'type': 'Type',
-            'seat_number_1': 'Seat Number 1', 'seat_number_2': 'Seat Number 2',
-            'seat_number_3': 'Seat Number 3', 'seat_number_4': 'Seat Number 4',
-            'seat_number_5': 'Seat Number 5', 'seat_number_6': 'Seat Number 6',
-            'seat_number_7': 'Seat Number 7', 'seat_number_8': 'Seat Number 8',
-            'seat_number_9': 'Seat Number 9', 'seat_number_10': 'Seat Number 10',
-            'enrollment_number': 'Enrollment Number',
-            'session': 'Session',
-            'regular_backlog': 'Regular/Backlog',
-            'father_name': 'Father\'s Name',
-            'mother_name': 'Mother\'s Name',
-            'gender': 'Gender',
-            'exam_name': 'Exam Name',
-            'exam_centre': 'Exam Centre',
-            'college_name': 'College Name',
-            'address': 'Address',
-            'paper_1': 'Paper 1', 'paper_2': 'Paper 2', 'paper_3': 'Paper 3',
-            'paper_4': 'Paper 4', 'paper_5': 'Paper 5', 'paper_6': 'Paper 6',
-            'paper_7': 'Paper 7', 'paper_8': 'Paper 8', 'paper_9': 'Paper 9',
-            'paper_10': 'Paper 10',
-            'report_key': 'report_key',
-            'room_num': 'room_num',
-            'absent_roll_numbers': 'absent_roll_numbers',
-            'ufm_roll_numbers': 'ufm_roll_numbers',
-            'invigilators': 'invigilators',
-            'senior_center_superintendent': 'senior_center_superintendent',
-            'center_superintendent': 'center_superintendent',
-            'assistant_center_superintendent': 'assistant_center_superintendent',
-            'permanent_invigilator': 'permanent_invigilator',
-            'assistant_permanent_invigilator': 'assistant_permanent_invigilator',
-            'class_3_worker': 'class_3_worker',
-            'class_4_worker': 'class_4_worker'
-        }
-        actual_reverse_column_mappings = {k: v for k, v in reverse_column_mappings.items() if k in df.columns}
-        df.rename(columns=actual_reverse_column_mappings, inplace=True)
-        
-        # Handle date format conversion (YYYY-MM-DD back to DD-MM-YYYY)
-        if 'Date' in df.columns:
-            def format_date_for_csv(d_str):
-                if pd.isna(d_str) or not isinstance(d_str, str) or d_str.strip() == '':
-                    return ''
-                try:
-                    dt_obj = datetime.datetime.strptime(d_str, '%Y-%m-%d')
-                    return dt_obj.strftime('%d-%m-%Y')
-                except ValueError:
-                    return d_str
-            df['Date'] = df['Date'].apply(format_date_for_csv)
-        
-        # Handle JSON fields back to string format
-        json_fields_to_str = [
-            'absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
-            'senior_center_superintendent', 'center_superintendent',
-            'assistant_center_superintendent', 'permanent_invigilator', 
-            'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker'
-        ]
-        
-        for field in json_fields_to_str:
-            if field in df.columns:
-                df[field] = df[field].apply(lambda x: str(x) if x is not None and x != [] else '')
-        
-        df = df.fillna('')
-        df.to_csv(filename, index=False)
-        
-        return True, f"✅ Downloaded {len(df)} rows from `{table_name}` to `{filename}`."
-        
+        while True:
+            # Use supabase.from_ for explicit table selection with pagination
+            response = supabase.from_(table_name).select("*").limit(limit).offset(offset).execute()
+            
+            # The 'response' object is now a PostgrestResponse object that does not have a .data attribute.
+            # You should check the documentation to confirm the correct way to get data from this object,
+            # but usually it's just the object itself, or through a specific method.
+            # The .data attribute exists only after a successful request.
+            data = response.data
+            
+            # If no data is returned, we have reached the end of the table
+            if not data:
+                break
+                
+            all_data.extend(data)
+            
+            # If the number of records returned is less than the limit, we've reached the end
+            if len(data) < limit:
+                break
+            
+            offset += limit
+    
     except Exception as e:
-        # st.error(f"❌ General Error during download from `{table_name}`: {str(e)}") # removed for user since it was not working as a part of previous code
+        # Catch any API exceptions (e.g., failed request, bad token)
         traceback.print_exc()
-        return False, f"❌ General Error during download from `{table_name}`: {str(e)}"
+        return False, f"❌ Supabase API Error for '{table_name}': {e}"
+    
+    if not all_data:
+        return True, f"⚠️ No data found in table `{table_name}`. An empty file has been created."
 
-# ... (the rest of your code remains the same) ...
+    df = pd.DataFrame(all_data)
+    
+    # ... (the rest of the function remains the same from here) ...
+    # Remove auto-generated 'id' and 'created_at' columns if they exist
+    columns_to_drop = ['id', 'created_at']
+    df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
+    
+    # Reverse column name mapping (database columns back to CSV headers)
+    reverse_column_mappings = {
+        'roll_number': 'Roll Number', 'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
+        'room_number': 'Room Number', 'seat_number': 'Seat Number', 'date': 'Date',
+        'shift': 'Shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper',
+        'name': 'Name',
+        'roll_number_1': 'Roll Number 1', 'roll_number_2': 'Roll Number 2',
+        'roll_number_3': 'Roll Number 3', 'roll_number_4': 'Roll Number 4',
+        'roll_number_5': 'Roll Number 5', 'roll_number_6': 'Roll Number 6',
+        'roll_number_7': 'Roll Number 7', 'roll_number_8': 'Roll Number 8',
+        'roll_number_9': 'Roll Number 9', 'roll_number_10': 'Roll Number 10',
+        'mode': 'Mode', 'type': 'Type',
+        'seat_number_1': 'Seat Number 1', 'seat_number_2': 'Seat Number 2',
+        'seat_number_3': 'Seat Number 3', 'seat_number_4': 'Seat Number 4',
+        'seat_number_5': 'Seat Number 5', 'seat_number_6': 'Seat Number 6',
+        'seat_number_7': 'Seat Number 7', 'seat_number_8': 'Seat Number 8',
+        'seat_number_9': 'Seat Number 9', 'seat_number_10': 'Seat Number 10',
+        'enrollment_number': 'Enrollment Number',
+        'session': 'Session',
+        'regular_backlog': 'Regular/Backlog',
+        'father_name': 'Father\'s Name',
+        'mother_name': 'Mother\'s Name',
+        'gender': 'Gender',
+        'exam_name': 'Exam Name',
+        'exam_centre': 'Exam Centre',
+        'college_name': 'College Name',
+        'address': 'Address',
+        'paper_1': 'Paper 1', 'paper_2': 'Paper 2', 'paper_3': 'Paper 3',
+        'paper_4': 'Paper 4', 'paper_5': 'Paper 5', 'paper_6': 'Paper 6',
+        'paper_7': 'Paper 7', 'paper_8': 'Paper 8', 'paper_9': 'Paper 9',
+        'paper_10': 'Paper 10',
+        'report_key': 'report_key',
+        'room_num': 'room_num',
+        'absent_roll_numbers': 'absent_roll_numbers',
+        'ufm_roll_numbers': 'ufm_roll_numbers',
+        'invigilators': 'invigilators',
+        'senior_center_superintendent': 'senior_center_superintendent',
+        'center_superintendent': 'center_superintendent',
+        'assistant_center_superintendent': 'assistant_center_superintendent',
+        'permanent_invigilator': 'permanent_invigilator',
+        'assistant_permanent_invigilator': 'assistant_permanent_invigilator',
+        'class_3_worker': 'class_3_worker',
+        'class_4_worker': 'class_4_worker'
+    }
+    actual_reverse_column_mappings = {k: v for k, v in reverse_column_mappings.items() if k in df.columns}
+    df.rename(columns=actual_reverse_column_mappings, inplace=True)
+    
+    # Handle date format conversion (YYYY-MM-DD back to DD-MM-YYYY)
+    if 'Date' in df.columns:
+        def format_date_for_csv(d_str):
+            if pd.isna(d_str) or not isinstance(d_str, str) or d_str.strip() == '':
+                return ''
+            try:
+                dt_obj = datetime.datetime.strptime(d_str, '%Y-%m-%d')
+                return dt_obj.strftime('%d-%m-%Y')
+            except ValueError:
+                return d_str
+        df['Date'] = df['Date'].apply(format_date_for_csv)
+    
+    # Handle JSON fields back to string format
+    json_fields_to_str = [
+        'absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
+        'senior_center_superintendent', 'center_superintendent',
+        'assistant_center_superintendent', 'permanent_invigilator', 
+        'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker'
+    ]
+    
+    for field in json_fields_to_str:
+        if field in df.columns:
+            df[field] = df[field].apply(lambda x: str(x) if x is not None and x != [] else '')
+    
+    df = df.fillna('')
+    df.to_csv(filename, index=False)
+    
+    return True, f"✅ Downloaded {len(df)} rows from `{table_name}` to `{filename}`."
 
+    
 # --- NEW FUNCTION: Download attestation_data_combined to parent folder ---
 def download_attestation_data_to_parent_folder():
     current_script_dir = os.path.dirname(os.path.abspath(__file__))
