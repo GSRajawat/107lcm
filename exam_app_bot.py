@@ -527,36 +527,39 @@ import os
 def load_shift_assignments():
     if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
         try:
-            # Use engine='python' and set encoding to 'utf-8-sig' for robust parsing
-            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE, engine='python', encoding='utf-8-sig')
+            # Use engine='python' for handling inconsistent quoting
+            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE, engine='python')
             
-            def safe_literal_eval(val):
+            # A new, more robust function to parse list-like strings
+            def robust_list_parser(val):
                 if isinstance(val, str) and val.strip():
-                    clean_val = val.strip().strip('"')
-                    try:
-                        return ast.literal_eval(clean_val)
-                    except (ValueError, SyntaxError):
-                        return []
+                    # Remove surrounding quotes and brackets
+                    clean_val = val.strip().strip('"').strip('[').strip(']')
+                    
+                    if clean_val:
+                        # Split by comma and clean each item
+                        items = [item.strip().strip("'") for item in clean_val.split(',')]
+                        return items
                 return []
 
+            # Apply the new parser to all relevant columns
             for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", 
                          "permanent_invigilator", "assistant_permanent_invigilator", 
                          "class_3_worker", "class_4_worker"]:
                 if role in df.columns:
-                    df[role] = df[role].apply(safe_literal_eval)
-
-            return df
+                    df[role] = df[role].apply(robust_list_parser)
             
+            return df
+
         except Exception as e:
-            # Add this to see the full error in the Streamlit logs
-            st.error(f"Error loading shift assignments: {e}. Check Streamlit logs for details.")
+            # st.error(f"Error loading shift assignments: {e}. Reinitializing shift assignments file.")
             return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
                                          "assistant_center_superintendent", "permanent_invigilator", 
                                          "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
 
     return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
-                                 "assistant_permanent_invigilator", "class_3_worker", "class_4_worker", 
-                                 "permanent_invigilator", "assistant_permanent_invigilator"])
+                                 "assistant_center_superintendent", "permanent_invigilator", 
+                                 "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
 
 def save_shift_assignment(date, shift, assignments):
     assignments_df = load_shift_assignments()
