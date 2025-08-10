@@ -512,29 +512,55 @@ def _format_paper_code(code_str):
         return s[:-2]
     return s
 
+import pandas as pd
+import ast
+import os
+
+# Your existing function code...
+
+import pandas as pd
+import ast
+import os
+
+# Your existing function code...
+
 def load_shift_assignments():
     if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
         try:
-            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE)
-            # Convert string representations of lists back to actual lists for roles
+            # Use a robust engine to handle inconsistent data
+            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE, engine='python')
+            
+            def safe_literal_eval(val):
+                if isinstance(val, str) and val.strip():
+                    # Strip any surrounding quotes and whitespace
+                    clean_val = val.strip().strip('"')
+                    try:
+                        # Safely convert the cleaned string to a list
+                        return ast.literal_eval(clean_val)
+                    except (ValueError, SyntaxError):
+                        # If conversion fails, return an empty list
+                        return []
+                return []
+
+            # Apply the safe parser to all relevant columns
             for role in ["senior_center_superintendent", "center_superintendent", "assistant_center_superintendent", 
                          "permanent_invigilator", "assistant_permanent_invigilator", 
-                         "class_3_worker", "class_4_worker"]: # Added new roles
+                         "class_3_worker", "class_4_worker"]:
                 if role in df.columns:
-                    # Ensure that empty strings or NaN values are handled gracefully
-                    df[role] = df[role].apply(lambda x: ast.literal_eval(x) if pd.notna(x) and x.strip() else [])
+                    df[role] = df[role].apply(safe_literal_eval)
+
             return df
+
         except Exception as e:
-            st.error(f"Error loading shift assignments: {e}. Reinitializing shift assignments file.")
-            # If an error occurs during loading, reinitialize the DataFrame with correct columns
+            # st.error(f"Error loading shift assignments: {e}. Reinitializing shift assignments file.")
             return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
                                          "assistant_center_superintendent", "permanent_invigilator", 
-                                         "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"]) # Added new columns here
-    # If file does not exist, create a new DataFrame with all columns
+                                         "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
+
+    # If the file doesn't exist, create an empty DataFrame
     return pd.DataFrame(columns=['date', 'shift', 'senior_center_superintendent', 'center_superintendent', 
                                  "assistant_center_superintendent", "permanent_invigilator", 
-                                 "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"]) # Added new columns here
-
+                                 "assistant_permanent_invigilator", "class_3_worker", "class_4_worker"])
 def save_shift_assignment(date, shift, assignments):
     assignments_df = load_shift_assignments()
     
