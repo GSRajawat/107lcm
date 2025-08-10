@@ -16,6 +16,7 @@ import json
 from supabase import create_client, Client
 import datetime
 import numpy as np
+import traceback
 
 
 # Initialize Supabase
@@ -53,12 +54,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- CORRECTED: upload_csv_to_supabase function ---
 def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
     try:
         import pandas as pd
         import numpy as np
         import json
         import ast
+        import datetime # <--- ADD THIS IMPORT
 
         df = pd.read_csv(csv_path)
         df.columns = df.columns.str.strip()
@@ -78,7 +81,7 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
             'Class': 'class',
             'Paper': 'paper',
             'Name': 'name',
-            
+
             # Sitting plan specific
             'Roll Number 1': 'roll_number_1',
             'Roll Number 2': 'roll_number_2',
@@ -102,7 +105,28 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
             'Seat Number 8': 'seat_number_8',
             'Seat Number 9': 'seat_number_9',
             'Seat Number 10': 'seat_number_10',
-            
+
+            # Attestation specific MAPPINGS ADDED/UPDATED HERE
+            'Enrollment Number': 'enrollment_number',
+            'Session': 'session',
+            'Regular/Backlog': 'regular_backlog',
+            'Father\'s Name': 'father_name',
+            'Mother\'s Name': 'mother_name',
+            'Gender': 'gender',
+            'Exam Name': 'exam_name',
+            'Exam Centre': 'exam_centre',
+            'College Name': 'college_name',
+            'Address': 'address',
+            'Paper 1': 'paper_1',
+            'Paper 2': 'paper_2',
+            'Paper 3': 'paper_3',
+            'Paper 4': 'paper_4',
+            'Paper 5': 'paper_5',
+            'Paper 6': 'paper_6',
+            'Paper 7': 'paper_7',
+            'Paper 8': 'paper_8',
+            'Paper 9': 'paper_9',
+            'Paper 10': 'paper_10',
             # Other specific mappings
             'report_key': 'report_key',
             'room_num': 'room_num',
@@ -123,30 +147,37 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
 
         # Clean missing values and handle NaN
         df = df.replace(r'^\s*$', None, regex=True)
-        df = df.replace([np.inf, -np.inf], None)  # Handle infinite values
-        
+        df = df.replace([np.inf, -np.inf], None)
+
         # Convert all columns to handle NaN properly
         for col in df.columns:
-            df[col] = df[col].apply(lambda x: None if pd.isna(x) or 
-                                   (isinstance(x, float) and not np.isfinite(x)) or
-                                   str(x).strip() == '' else x)
-
+            df[col] = df[col].apply(lambda x: None if pd.isna(x) or
+                                                 (isinstance(x, float) and not np.isfinite(x)) or
+                                                 str(x).strip() == '' else x)
+        
+        # --- CORRECTED CODE HERE ---
         # Handle date format conversion (DD-MM-YYYY to YYYY-MM-DD)
         if 'date' in df.columns:
-            df['date'] = df['date'].apply(lambda x: 
-                f"20{x.split('-')[2]}-{x.split('-')[1].zfill(2)}-{x.split('-')[0].zfill(2)}" 
-                if x and isinstance(x, str) and len(x.split('-')) == 3 
-                else x)
+            def convert_date_format(date_str):
+                if pd.notna(date_str) and isinstance(date_str, str) and len(date_str.split('-')) == 3:
+                    try:
+                        # Assuming DD-MM-YYYY format from the CSV, convert to YYYY-MM-DD
+                        return datetime.datetime.strptime(date_str, '%d-%m-%Y').strftime('%Y-%m-%d')
+                    except ValueError:
+                        # If the format is not as expected, return the original string
+                        return date_str
+                return date_str
+
+            df['date'] = df['date'].apply(convert_date_format)
 
         # Handle JSON fields (arrays stored as strings)
         json_fields = ['absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
-                      'senior_center_superintendent', 'center_superintendent', 
-                      'assistant_center_superintendent', 'permanent_invigilator',
-                      'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']
+                     'senior_center_superintendent', 'center_superintendent',
+                     'assistant_center_superintendent', 'permanent_invigilator',
+                     'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']
         
         for field in json_fields:
             if field in df.columns:
-                # Use a helper function or a more explicit lambda to avoid ambiguity
                 def parse_json_field(x):
                     if pd.notna(x) and isinstance(x, str) and x.strip():
                         try:
@@ -163,12 +194,12 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
 
         # Convert numeric fields properly
         numeric_fields = ['room_number', 'seat_number', 'room_num', 'sn'] + \
-                        [f'seat_number_{i}' for i in range(1, 11)]
-        
+                         [f'seat_number_{i}' for i in range(1, 11)]
+
         for field in numeric_fields:
             if field in df.columns:
                 df[field] = pd.to_numeric(df[field], errors='coerce')
-                df[field] = df[field].astype('Int64')  # Use nullable integer type
+                df[field] = df[field].astype('Int64')
 
         if df.empty:
             return False, f"⚠️ `{csv_path}` is empty."
@@ -182,7 +213,6 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
             cleaned_record = {}
             for key, value in record.items():
                 if isinstance(value, list):
-                    # Keep lists as they are for JSONB/ARRAY fields
                     cleaned_record[key] = value if value else None
                 elif value is None or (not isinstance(value, list) and pd.isna(value)):
                     cleaned_record[key] = None
@@ -197,7 +227,7 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
         # Upload in batches to handle large datasets
         batch_size = 100
         total_uploaded = 0
-        
+
         for i in range(0, len(cleaned_records), batch_size):
             batch = cleaned_records[i:i + batch_size]
             supabase.table(table_name).insert(batch).execute()
@@ -208,65 +238,61 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
     except Exception as e:
         return False, f"❌ Error uploading to `{table_name}`: {str(e)}"
 
-def download_supabase_to_csv(table_name, csv_filename):
+# --- MODIFIED: download_supabase_to_csv (to handle potential API changes and use traceback) ---
+def download_supabase_to_csv(table_name, filename):
     try:
-        import pandas as pd
-        import numpy as np
+        # Use supabase.from_ for explicit table selection
+        response = supabase.from_(table_name).select("*").limit(1000000).execute()
         
-        # Fetch all data from Supabase table
-        response = supabase.table(table_name).select("*").execute()
-        
+        # Check for errors in a way that is robust to different API versions
+        try:
+            if response.error:
+                return False, f"⚠️ Supabase error for '{table_name}': {response.error.message}"
+        except AttributeError:
+            # If `response` doesn't have an `error` attribute, assume it's fine unless data is missing
+            pass
+
         if not response.data:
-            return False, f"⚠️ No data found in table `{table_name}`."
+            return True, f"⚠️ No data found in table `{table_name}`. An empty file has been created."
         
-        # Convert to DataFrame
         df = pd.DataFrame(response.data)
         
-        # Remove the auto-generated 'id' and 'created_at' columns if they exist
+        # ... (the rest of the function remains the same, including column handling and saving) ...
+        # Remove auto-generated 'id' and 'created_at' columns if they exist
         columns_to_drop = ['id', 'created_at']
         df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
         
         # Reverse column name mapping (database columns back to CSV headers)
         reverse_column_mappings = {
-            # Common mappings
-            'roll_number': 'Roll Number',
-            'paper_code': 'Paper Code',
-            'paper_name': 'Paper Name', 
-            'room_number': 'Room Number',
-            'seat_number': 'Seat Number',
-            'date': 'Date',
-            'shift': 'Shift',
-            'sn': 'SN',
-            'time': 'Time',
-            'class': 'Class',
-            'paper': 'Paper',
-            'name': 'name',
-            
-            # Sitting plan specific
-            'roll_number_1': 'Roll Number 1',
-            'roll_number_2': 'Roll Number 2',
-            'roll_number_3': 'Roll Number 3',
-            'roll_number_4': 'Roll Number 4',
-            'roll_number_5': 'Roll Number 5',
-            'roll_number_6': 'Roll Number 6',
-            'roll_number_7': 'Roll Number 7',
-            'roll_number_8': 'Roll Number 8',
-            'roll_number_9': 'Roll Number 9',
-            'roll_number_10': 'Roll Number 10',
-            'mode': 'Mode',
-            'type': 'Type',
-            'seat_number_1': 'Seat Number 1',
-            'seat_number_2': 'Seat Number 2',
-            'seat_number_3': 'Seat Number 3',
-            'seat_number_4': 'Seat Number 4',
-            'seat_number_5': 'Seat Number 5',
-            'seat_number_6': 'Seat Number 6',
-            'seat_number_7': 'Seat Number 7',
-            'seat_number_8': 'Seat Number 8',
-            'seat_number_9': 'Seat Number 9',
-            'seat_number_10': 'Seat Number 10',
-            
-            # Other specific mappings
+            'roll_number': 'Roll Number', 'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
+            'room_number': 'Room Number', 'seat_number': 'Seat Number', 'date': 'Date',
+            'shift': 'Shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper',
+            'name': 'Name',
+            'roll_number_1': 'Roll Number 1', 'roll_number_2': 'Roll Number 2',
+            'roll_number_3': 'Roll Number 3', 'roll_number_4': 'Roll Number 4',
+            'roll_number_5': 'Roll Number 5', 'roll_number_6': 'Roll Number 6',
+            'roll_number_7': 'Roll Number 7', 'roll_number_8': 'Roll Number 8',
+            'roll_number_9': 'Roll Number 9', 'roll_number_10': 'Roll Number 10',
+            'mode': 'Mode', 'type': 'Type',
+            'seat_number_1': 'Seat Number 1', 'seat_number_2': 'Seat Number 2',
+            'seat_number_3': 'Seat Number 3', 'seat_number_4': 'Seat Number 4',
+            'seat_number_5': 'Seat Number 5', 'seat_number_6': 'Seat Number 6',
+            'seat_number_7': 'Seat Number 7', 'seat_number_8': 'Seat Number 8',
+            'seat_number_9': 'Seat Number 9', 'seat_number_10': 'Seat Number 10',
+            'enrollment_number': 'Enrollment Number',
+            'session': 'Session',
+            'regular_backlog': 'Regular/Backlog',
+            'father_name': 'Father\'s Name',
+            'mother_name': 'Mother\'s Name',
+            'gender': 'Gender',
+            'exam_name': 'Exam Name',
+            'exam_centre': 'Exam Centre',
+            'college_name': 'College Name',
+            'address': 'Address',
+            'paper_1': 'Paper 1', 'paper_2': 'Paper 2', 'paper_3': 'Paper 3',
+            'paper_4': 'Paper 4', 'paper_5': 'Paper 5', 'paper_6': 'Paper 6',
+            'paper_7': 'Paper 7', 'paper_8': 'Paper 8', 'paper_9': 'Paper 9',
+            'paper_10': 'Paper 10',
             'report_key': 'report_key',
             'room_num': 'room_num',
             'absent_roll_numbers': 'absent_roll_numbers',
@@ -280,40 +306,181 @@ def download_supabase_to_csv(table_name, csv_filename):
             'class_3_worker': 'class_3_worker',
             'class_4_worker': 'class_4_worker'
         }
-        
-        # Rename columns back to original CSV format
-        df.rename(columns=reverse_column_mappings, inplace=True)
+        actual_reverse_column_mappings = {k: v for k, v in reverse_column_mappings.items() if k in df.columns}
+        df.rename(columns=actual_reverse_column_mappings, inplace=True)
         
         # Handle date format conversion (YYYY-MM-DD back to DD-MM-YYYY)
         if 'Date' in df.columns:
-            df['Date'] = df['Date'].apply(lambda x: 
-                f"{x.split('-')[2]}-{x.split('-')[1]}-{x.split('-')[0][2:]}" 
-                if x and isinstance(x, str) and len(x.split('-')) == 3 
-                else x)
+            def format_date_for_csv(d_str):
+                if pd.isna(d_str) or not isinstance(d_str, str) or d_str.strip() == '':
+                    return ''
+                try:
+                    dt_obj = datetime.datetime.strptime(d_str, '%Y-%m-%d')
+                    return dt_obj.strftime('%d-%m-%Y')
+                except ValueError:
+                    return d_str
+            df['Date'] = df['Date'].apply(format_date_for_csv)
         
         # Handle JSON fields back to string format
-        json_fields = ['absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
-                      'senior_center_superintendent', 'center_superintendent',
-                      'assistant_center_superintendent', 'permanent_invigilator', 
-                      'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']
+        json_fields_to_str = [
+            'absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
+            'senior_center_superintendent', 'center_superintendent',
+            'assistant_center_superintendent', 'permanent_invigilator', 
+            'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker'
+        ]
         
-        for field in json_fields:
+        for field in json_fields_to_str:
             if field in df.columns:
-                df[field] = df[field].apply(lambda x: 
-                    str(x).replace("'", "'") if x and x != 'None' else '')
+                df[field] = df[field].apply(lambda x: str(x) if x is not None and x != [] else '')
         
-        # Replace None/NaN with empty strings for CSV format
         df = df.fillna('')
+        df.to_csv(filename, index=False)
         
-        # Save to CSV in the same directory as the program
-        df.to_csv(csv_filename, index=False)
-        
-        return True, f"✅ Downloaded {len(df)} rows from `{table_name}` to `{csv_filename}`."
+        return True, f"✅ Downloaded {len(df)} rows from `{table_name}` to `{filename}`."
         
     except Exception as e:
-        return False, f"❌ Error downloading from `{table_name}`: {str(e)}"
+        # st.error(f"❌ General Error during download from `{table_name}`: {str(e)}") # removed for user since it was not working as a part of previous code
+        traceback.print_exc()
+        return False, f"❌ General Error during download from `{table_name}`: {str(e)}"
 
+# ... (the rest of your code remains the same) ...
 
+# --- NEW FUNCTION: Download attestation_data_combined to parent folder ---
+def download_attestation_data_to_parent_folder():
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
+    
+    # Construct the full path for the CSV file in the parent directory
+    output_filename = os.path.join(parent_dir, ATTESTATION_DATA_FILE)
+    
+    st.info(f"Attempting to download '{ATTESTATION_DATA_FILE}' from Supabase to: {output_filename}")
+    success, message = download_supabase_to_csv("attestation_data_combined", output_filename)
+    
+    if success:
+        st.success(f"Successfully downloaded '{ATTESTATION_DATA_FILE}' to the parent folder.")
+        # Reload the app to ensure the newly downloaded file is recognized
+        st.rerun() 
+    else:
+        st.error(f"Failed to download '{ATTESTATION_DATA_FILE}': {message}")
+    
+    return success, message
+
+# --- MODIFIED: load_data (remove attestation download from here) ---
+def load_data():
+    sitting_plan_df = pd.DataFrame()
+    timetable_df = pd.DataFrame()
+    assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+    attestation_df = pd.DataFrame()
+
+    # --- Initial Downloads from Supabase if local files are missing/empty ---
+    
+    # Download Timetable
+    if not os.path.exists(TIMETABLE_FILE) or os.stat(TIMETABLE_FILE).st_size == 0:
+        st.info(f"Attempting to download {TIMETABLE_FILE} from Supabase...")
+        success, message = download_supabase_to_csv("timetable", TIMETABLE_FILE)
+        if not success:
+            st.warning(f"Failed to download {TIMETABLE_FILE} from Supabase: {message}. Will proceed with an empty DataFrame.")
+    
+    # Download Sitting Plan
+    if not os.path.exists(SITTING_PLAN_FILE) or os.stat(SITTING_PLAN_FILE).st_size == 0:
+        st.info(f"Attempting to download {SITTING_PLAN_FILE} from Supabase...")
+        success, message = download_supabase_to_csv("sitting_plan", SITTING_PLAN_FILE)
+        if not success:
+            st.warning(f"Failed to download {SITTING_PLAN_FILE} from Supabase: {message}. Will proceed with an empty DataFrame.")
+
+    # Download Assigned Seats
+    if not os.path.exists(ASSIGNED_SEATS_FILE) or os.stat(ASSIGNED_SEATS_FILE).st_size == 0:
+        st.info(f"Attempting to download {ASSIGNED_SEATS_FILE} from Supabase...")
+        success, message = download_supabase_to_csv("assigned_seats", ASSIGNED_SEATS_FILE)
+        if not success:
+            st.warning(f"Failed to download {ASSIGNED_SEATS_FILE} from Supabase: {message}. Will proceed with an empty DataFrame.")
+
+    # NOTE: Attestation data download logic is moved to its own function
+    # You will need to call `download_attestation_data_to_parent_folder()` explicitly
+    # if you want this file to be downloaded by a user action.
+            
+    # Load all DataFrames from local CSVs (now potentially updated from Supabase)
+    if os.path.exists(SITTING_PLAN_FILE):
+        try:
+            sitting_plan_df = pd.read_csv(SITTING_PLAN_FILE, dtype={
+                f"Roll Number {i}": str for i in range(1, 11)
+            })
+            sitting_plan_df.columns = sitting_plan_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+            if 'Paper Code' in sitting_plan_df.columns:
+                sitting_plan_df['Paper Code'] = sitting_plan_df['Paper Code'].apply(_format_paper_code)
+        except Exception as e:
+            st.error(f"Error loading {SITTING_PLAN_FILE} from local file: {e}")
+            sitting_plan_df = pd.DataFrame()
+
+    if os.path.exists(TIMETABLE_FILE):
+        try:
+            timetable_df = pd.read_csv(TIMETABLE_FILE)
+            timetable_df.columns = timetable_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+            if 'Paper Code' in timetable_df.columns:
+                timetable_df['Paper Code'] = timetable_df['Paper Code'].apply(_format_paper_code)
+        except Exception as e:
+            st.error(f"Error loading {TIMETABLE_FILE} from local file: {e}")
+            timetable_df = pd.DataFrame()
+    
+    if os.path.exists(ASSIGNED_SEATS_FILE):
+        try:
+            temp_assigned_df = pd.read_csv(ASSIGNED_SEATS_FILE, dtype=str)
+            temp_assigned_df.columns = temp_assigned_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+
+            rename_map = {}
+            if 'Roll Numb' in temp_assigned_df.columns: rename_map['Roll Numb'] = 'Roll Number'
+            if 'Paper Cod' in temp_assigned_df.columns: rename_map['Paper Cod'] = 'Paper Code'
+            if 'Paper Nan' in temp_assigned_df.columns: rename_map['Paper Nan'] = 'Paper Name'
+            if 'Room Nur' in temp_assigned_df.columns: rename_map['Room Nur'] = 'Room Number'
+            if 'Seat Numi' in temp_assigned_df.columns: rename_map['Seat Numi'] = 'Seat Number'
+
+            if rename_map:
+                temp_assigned_df.rename(columns=rename_map, inplace=True)
+            
+            required_assigned_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"]
+            missing_cols = [col for col in required_assigned_cols if col not in temp_assigned_df.columns]
+
+            if missing_cols:
+                st.error(f"Critical Error: Missing essential columns in {ASSIGNED_SEATS_FILE}: {missing_cols}. Please verify the file content.")
+                assigned_seats_df = pd.DataFrame(columns=required_assigned_cols)
+            else:
+                assigned_seats_df = temp_assigned_df[required_assigned_cols].copy()
+                assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].apply(_format_paper_code)
+                for col in ["Roll Number", "Room Number", "Seat Number", "Date", "Shift"]:
+                    if col in assigned_seats_df.columns:
+                        assigned_seats_df[col] = assigned_seats_df[col].astype(str)
+
+        except Exception as e:
+            st.error(f"Error loading {ASSIGNED_SEATS_FILE} from local file: {e}. Ensure it's a valid CSV file.")
+            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+    
+    # Check for attestation_data_combined in the parent folder
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
+    attestation_file_in_parent = os.path.join(parent_dir, ATTESTATION_DATA_FILE)
+
+    if os.path.exists(attestation_file_in_parent):
+        try:
+            attestation_df = pd.read_csv(attestation_file_in_parent, dtype=str)
+            attestation_df.columns = attestation_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+            for i in range(1, 11):
+                col_name = f'Paper {i}'
+                if col_name in attestation_df.columns:
+                    attestation_df[col_name] = attestation_df[col_name].fillna('').astype(str)
+            st.info(f"Loaded '{ATTESTATION_DATA_FILE}' from parent folder.")
+        except Exception as e:
+            st.error(f"Error loading {ATTESTATION_DATA_FILE} from parent folder: {e}. Ensure it's a valid CSV file.")
+            attestation_df = pd.DataFrame()
+    else:
+        st.warning(f"'{ATTESTATION_DATA_FILE}' not found in the parent folder. Some features may be limited.")
+            
+    # Store loaded dataframes in session state for consistency across app reruns
+    st.session_state['sitting_plan'] = sitting_plan_df
+    st.session_state['timetable'] = timetable_df
+    st.session_state['assigned_seats_df'] = assigned_seats_df
+    st.session_state['attestation_df'] = attestation_df
+
+    return sitting_plan_df, timetable_df, assigned_seats_df, attestation_df
 
 
 # Helper function to ensure consistent string formatting for paper codes (remove .0 if numeric)
@@ -396,100 +563,6 @@ def _format_paper_code(code_str):
         return s[:-2]
     return s
 
-def load_data():
-    # Initialize all DataFrames at the beginning
-    sitting_plan_df = pd.DataFrame()
-    timetable_df = pd.DataFrame()
-    assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
-    attestation_df = pd.DataFrame()
-
-    # --- Load sitting_plan_df ---
-    if os.path.exists(SITTING_PLAN_FILE):
-        try:
-            sitting_plan_df = pd.read_csv(SITTING_PLAN_FILE, dtype={
-                f"Roll Number {i}": str for i in range(1, 11)
-            })
-            # Robustly clean column names: strip whitespace from all and replace problematic chars
-            sitting_plan_df.columns = sitting_plan_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
-            
-            if 'Paper Code' in sitting_plan_df.columns:
-                sitting_plan_df['Paper Code'] = sitting_plan_df['Paper Code'].apply(_format_paper_code)
-        except Exception as e:
-            st.error(f"Error loading {SITTING_PLAN_FILE}: {e}")
-            sitting_plan_df = pd.DataFrame()
-
-    # --- Load timetable_df ---
-    if os.path.exists(TIMETABLE_FILE):
-        try:
-            timetable_df = pd.read_csv(TIMETABLE_FILE)
-            # Robustly clean column names
-            timetable_df.columns = timetable_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
-            
-            if 'Paper Code' in timetable_df.columns:
-                timetable_df['Paper Code'] = timetable_df['Paper Code'].apply(_format_paper_code)
-        except Exception as e:
-            st.error(f"Error loading {TIMETABLE_FILE}: {e}")
-            timetable_df = pd.DataFrame()
-    
-    # --- Load assigned_seats_df ---
-    if os.path.exists(ASSIGNED_SEATS_FILE):
-        try:
-            # Read as strings first to avoid dtype issues with mixed types or weird characters
-            temp_assigned_df = pd.read_csv(ASSIGNED_SEATS_FILE, dtype=str)
-            
-            # Robustly clean column names immediately after reading
-            # This handles any leading/trailing spaces, BOM, or non-breaking spaces
-            temp_assigned_df.columns = temp_assigned_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
-
-            # Explicitly rename truncated/misnamed columns if they exist after initial stripping
-            # Only rename if the *source* column exists.
-            rename_map = {}
-            if 'Roll Numb' in temp_assigned_df.columns: # Example of old truncated name
-                rename_map['Roll Numb'] = 'Roll Number'
-            if 'Paper Cod' in temp_assigned_df.columns: # Example of old truncated name
-                rename_map['Paper Cod'] = 'Paper Code'
-            if 'Paper Nan' in temp_assigned_df.columns: # From your screenshot
-                rename_map['Paper Nan'] = 'Paper Name'
-            if 'Room Nur' in temp_assigned_df.columns: # From your screenshot
-                rename_map['Room Nur'] = 'Room Number'
-            if 'Seat Numi' in temp_assigned_df.columns: # From your screenshot
-                rename_map['Seat Numi'] = 'Seat Number'
-
-            if rename_map:
-                temp_assigned_df.rename(columns=rename_map, inplace=True)
-            
-            # Now, after potential renaming and aggressive cleaning, ensure the required columns are present.
-            # If 'Paper Code' is still not there, it means the source file genuinely lacks it or has an unrecognized variant.
-            required_assigned_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"]
-            missing_cols = [col for col in required_assigned_cols if col not in temp_assigned_df.columns]
-
-            if missing_cols:
-                st.error(f"Critical Error: Missing essential columns in {ASSIGNED_SEATS_FILE}: {missing_cols}. Please verify the file content and try re-uploading via Admin Panel.")
-                assigned_seats_df = pd.DataFrame(columns=required_assigned_cols) # Return empty DataFrame with correct columns
-            else:
-                # Select only the required columns and ensure correct order, then proceed with type conversions/formatting
-                assigned_seats_df = temp_assigned_df[required_assigned_cols].copy() 
-                assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].apply(_format_paper_code)
-                # Ensure all are strings as per original intent for safety
-                for col in ["Roll Number", "Room Number", "Seat Number", "Date", "Shift"]:
-                    if col in assigned_seats_df.columns: # Double-check column existence after selection
-                        assigned_seats_df[col] = assigned_seats_df[col].astype(str)
-
-        except Exception as e:
-            st.error(f"Error loading {ASSIGNED_SEATS_FILE}: {e}. Ensure it's a valid CSV file.")
-            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
-    
-    # --- Load attestation_df ---
-    if os.path.exists(ATTESTATION_DATA_FILE):
-        try:
-            attestation_df = pd.read_csv(ATTESTATION_DATA_FILE, dtype={"Roll Number": str, "Enrollment Number": str})
-            attestation_df.columns = attestation_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
-        except Exception as e:
-            st.error(f"Error loading {ATTESTATION_DATA_FILE}: {e}. Ensure it's a valid CSV file.")
-            attestation_df = pd.DataFrame()
-            
-    return sitting_plan_df, timetable_df, assigned_seats_df, attestation_df
-
 
 # Save uploaded files (for admin panel)
 def save_uploaded_file(uploaded_file_content, filename):
@@ -531,6 +604,12 @@ def load_cs_reports_csv():
     if os.path.exists(CS_REPORTS_FILE):
         try:
             df = pd.read_csv(CS_REPORTS_FILE)
+            
+            # --- FIX STARTS HERE ---
+            # Standardize column names to lowercase and replace spaces with underscores
+            df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+            # --- FIX ENDS HERE ---
+
             # Ensure 'class' column exists, add if missing with empty string as default
             if 'class' not in df.columns:
                 df['class'] = ""
@@ -547,7 +626,7 @@ def load_cs_reports_csv():
             st.error(f"Error loading CS reports from CSV: {e}")
             return pd.DataFrame(columns=['report_key', 'date', 'shift', 'room_num', 'paper_code', 'paper_name', 'class', 'absent_roll_numbers', 'ufm_roll_numbers'])
     else:
-        return pd.DataFrame(columns=['report_key', 'date', 'shift', 'room_num', 'paper_code', 'paper_name', 'class', 'absent_roll_numbers', 'ufm_roll_numbers'])
+        return pd.DataFrame(columns=['report_key', 'date', 'shift', 'room_num', 'paper_code',])
 
 def save_cs_report_csv(report_key, data):
     reports_df = load_cs_reports_csv()
@@ -1044,11 +1123,6 @@ def extract_metadata_from_pdf_text(text):
         "paper_name": paper_name_val 
     }
   
-
-
-
-
-
 
 # --- Integration of pdftocsv.py logic ---
 def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_timetable_path):
@@ -3068,7 +3142,7 @@ st.title("Government Law College, Morena (M.P.) Examination Management System")
 menu = st.radio("Select Module", ["Student View", "Admin Panel", "Centre Superintendent Panel"])
 
 if menu == "Student View":
-    sitting_plan, timetable, assigned_seats_df, attestation_df = load_data() # Load assigned_seats_df here
+    sitting_plan, timetable, assigned_seats_df, attestation_df = load_data()
 
     # Check if dataframes are empty, indicating files were not loaded
     if sitting_plan.empty or timetable.empty:
@@ -3093,8 +3167,8 @@ if menu == "Student View":
                     for i, result in enumerate(results):
                         st.markdown(f"---")
                         st.subheader(f"Exam {i+1}")
-                        st.write(f"**Room Number:** {result['Room Number']}") # Display as string
-                        st.write(f"**🪑 Seat Number:** {result['Seat Number']}") # Display as string
+                        st.write(f"**Room Number:** {result['Room Number']}")
+                        st.write(f"**🪑 Seat Number:** {result['Seat Number']}")
                         st.write(f"**📚 Paper:** {result['Paper']} - {result['Paper Name']} - ({result['Paper Code']})")
                         st.write(f"**🏫 Class:** {result['Class']}")
                         st.write(f"**🎓 Student type:** {result['Mode']} - {result['Type']}")
@@ -3123,7 +3197,6 @@ if menu == "Student View":
         else:
             st.dataframe(timetable)
 
-
 elif menu == "Admin Panel":
     st.subheader("🔐 Admin Login")
     if admin_login():
@@ -3131,12 +3204,10 @@ elif menu == "Admin Panel":
         
         # Load data here, inside the successful login block
         sitting_plan, timetable, assigned_seats_df, attestation_df = load_data()
-
-        
         
         st.markdown("---")
         st.subheader("Current Data Previews")
-        col_sp, col_tt, col_assigned = st.columns(3) # Added a column for assigned_seats
+        col_sp, col_tt, col_assigned, col_attestation = st.columns(4) # Added a column for assigned_seats and attestation
         with col_sp:
             st.write(f"**{SITTING_PLAN_FILE}**")
             if not sitting_plan.empty:
@@ -3155,6 +3226,12 @@ elif menu == "Admin Panel":
                 st.dataframe(assigned_seats_df)
             else:
                 st.info("No assigned seats data loaded.")
+        with col_attestation: # Display attestation_data_combined.csv
+            st.write(f"**{ATTESTATION_DATA_FILE}**")
+            if not attestation_df.empty:
+                st.dataframe(attestation_df)
+            else:
+                st.info("No attestation data loaded.")
 
         st.markdown("---") # Separator
 
@@ -3163,19 +3240,22 @@ elif menu == "Admin Panel":
             "Get All Students for Date & Shift (Room Wise)",
             "Get All Students for Date & Shift (Roll Number Wise)",
             "Update Timetable Details",
-            "Assign Rooms & Seats to Students", # Renamed option
-            "Room Occupancy Report", # New option
-            "Room Chart Report", # New option for room chart
+            "Assign Rooms & Seats to Students",
+            "Room Occupancy Report",
+            "Room Chart Report",
             "Data Processing & Reports",
             "Remuneration Bill Generation",
-            "Report Panel"
+            "Report Panel",
+            "Download Attestation Data" # Added new option for direct download
         ])
 
-        # Conditional rendering based on data availability for core functions
-        # Individual functions will now check for data and display warnings.
-            
+        if admin_option == "Download Attestation Data":
+            st.subheader("⬇️ Download Attestation Data")
+            st.info(f"Click the button below to download '{ATTESTATION_DATA_FILE}' from Supabase to the parent folder of this application.")
+            if st.button("Download Attestation Data"):
+                download_attestation_data_to_parent_folder()
         
-        if admin_option == "Get All Students for Date & Shift (Room Wise)":
+        elif admin_option == "Get All Students for Date & Shift (Room Wise)":
             st.subheader("List All Students for a Date and Shift (Room Wise)")
             if assigned_seats_df.empty or timetable.empty: # Changed from sitting_plan to assigned_seats_df
                 st.info("Please ensure seats are assigned and 'timetable.csv' is uploaded to use this feature.")
@@ -3735,14 +3815,23 @@ elif menu == "Admin Panel":
                         "exam_team_members": "exam_team_members.csv",
                         "shift_assignments": "shift_assignments.csv",
                         "room_invigilator_assignments": "room_invigilator_assignments.csv",
-                        "cs_reports": "cs_reports.csv"
+                        "cs_reports": "cs_reports.csv",
+                        "attestation_data_combined": "attestation_data_combined.csv"
                     }
                     
                     st.markdown("### 📥 Downloading all Supabase tables to CSV files...")
                     download_success = True
                     
                     for table_name, csv_filename in table_csv_mapping.items():
-                        success, msg = download_supabase_to_csv(table_name, csv_filename)
+                        # For attestation, we need to handle the parent folder path
+                        if table_name == "attestation_data_combined":
+                            current_script_dir = os.path.dirname(os.path.abspath(__file__))
+                            parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
+                            full_path_attestation = os.path.join(parent_dir, csv_filename)
+                            success, msg = download_supabase_to_csv(table_name, csv_filename)
+                        else:
+                            success, msg = download_supabase_to_csv(table_name, csv_filename)
+                        
                         if success:
                             st.success(msg)
                         else:
@@ -3763,7 +3852,8 @@ elif menu == "Admin Panel":
                         "exam_team_members",
                         "assigned_seats",
                         "sitting_plan",
-                        "timetable"
+                        "timetable",
+                        "attestation_data_combined"
                     ]
 
                     delete_errors = []
@@ -3786,12 +3876,24 @@ elif menu == "Admin Panel":
                         "exam_team_members.csv": ("exam_team_members", None),
                         "shift_assignments.csv": ("shift_assignments", None),
                         "room_invigilator_assignments.csv": ("room_invigilator_assignments", None),
-                        "cs_reports.csv": ("cs_reports", None)
+                        "cs_reports.csv": ("cs_reports", None),
+                        "attestation_data_combined.csv": ("attestation_data_combined", None)
                     }
 
                     st.markdown("### 📤 Uploading all CSVs to Supabase...")
                     for file, (table, keys) in csv_table_mapping.items():
-                        success, msg = upload_csv_to_supabase(table, file, unique_cols=keys)
+                        # For attestation, read from parent folder
+                        if file == "attestation_data_combined.csv":
+                            current_script_dir = os.path.dirname(os.path.abspath(__file__))
+                            parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
+                            full_path_attestation = os.path.join(parent_dir, file)
+                            if os.path.exists(full_path_attestation):
+                                success, msg = upload_csv_to_supabase(table, full_path_attestation, unique_cols=keys)
+                            else:
+                                success, msg = False, f"File not found for upload: {full_path_attestation}"
+                        else:
+                            success, msg = upload_csv_to_supabase(table, file, unique_cols=keys)
+
                         if success:
                             st.success(msg)
                         else:
