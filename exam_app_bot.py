@@ -2592,21 +2592,15 @@ def display_report_panel():
             
 # --- Updated Remuneration Calculation Functions (from bill.py) ---
 
+import pandas as pd
+import ast
+
 def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df, timetable_df, assigned_seats_df,
                           manual_rates, prep_closing_assignments, holiday_dates, selected_classes_for_bill):
     """
-    Calculates the remuneration for all team members based on assignments and rules,
-    including individually selected preparation and closing days and holiday conveyance allowance.
-    
-    Updated Rules:
-    1. Person gets conveyance only if they worked in both shifts of the same date
-       (in selected and/or non-selected class exam).
-    2. If eligible, conveyance will be paid in the evening shift of a selected exam only.
-    3. Even if eligible, conveyance will not be paid in the morning shift of a selected exam.
-    4. Senior CS gets daily remuneration if worked in either shift of selected exam in bill of selected exam.
-    5. Senior CS doesn't get daily remuneration if worked in morning shift of selected exam and evening shift of non-selected exam in bill of selected exam.
-    6. Senior CS gets daily remuneration if worked in both shifts of selected exam in bill of selected exam.
-    7. Senior CS will also get exam day conveyance like others if they worked in both shifts.
+    Calculates the remuneration for all team members based on assignments and rules.
+    This version includes corrections for SCS pay, zero-remuneration filtering,
+    and a new 'Paper' column in the role summary.
     """
     remuneration_data_detailed_raw = []
     
@@ -2620,20 +2614,23 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
         'invigilator': {'role_display': 'Invigilator', 'rate': manual_rates['invigilator_rate'], 'unit': 'shift', 'eligible_prep_close': False, 'exam_conveyance': True},
     }
 
-    # Define rates for Class 3 and 4 workers (per student, applied to total students)
+    # Define rates for Class 3 and 4 workers
     class_worker_rates = {
         'class_3_worker': {'role_display': 'Class 3 Worker', 'rate_per_student': manual_rates['class_3_worker_rate_per_student']},
         'class_4_worker': {'role_display': 'Class 4 Worker', 'rate_per_student': manual_rates['class_4_worker_rate_per_student']},
     }
-
-    # Create a unified list of all assigned personnel and their roles for easier iteration
-    unified_assignments = []
-
-    # Collect unique Class 3 and Class 4 workers for overall remuneration calculation
+    
+    # Reverse mappings for display purposes
+    role_map_key = {v['role_display']: k for k, v in remuneration_rules.items()}
+    role_map_reverse = {k: v['role_display'] for k, v in remuneration_rules.items()}
+    
     unique_class_3_workers = set()
     unique_class_4_workers = set()
 
-    # Process shift assignments (all shifts, for conveyance and Senior CS daily rate)
+    # Create a unified list of all assigned personnel and their roles for easier iteration
+    unified_assignments = []
+    
+    # Process shift assignments
     for index, row in shift_assignments_df.iterrows():
         current_date = row['Date']
         current_shift = row['Shift']
@@ -2649,27 +2646,24 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
                         'Source': 'shift_assignments'
                     })
         
-        # Collect unique Class 3 and 4 workers
         if 'class_3_worker' in row and isinstance(row['class_3_worker'], list):
             unique_class_3_workers.update(row['class_3_worker'])
         if 'class_4_worker' in row and isinstance(row['class_4_worker'], list):
             unique_class_4_workers.update(row['class_4_worker'])
 
-    # Process room invigilator assignments (all shifts, for conveyance)
+    # Process room invigilator assignments
     for index, row in room_invigilator_assignments_df.iterrows():
         current_date = row['Date']
         current_shift = row['Shift']
         invigilators_list = row['invigilators']
-
+        
         for invigilator in invigilators_list:
-            is_assigned_higher_role = False
-            for assignment in unified_assignments:
-                if (assignment['Name'] == invigilator and
-                    assignment['Date'] == current_date and
-                    assignment['Shift'] == current_shift and
-                    assignment['Role_Key'] != 'invigilator'):
-                    is_assigned_higher_role = True
-                    break
+            is_assigned_higher_role = any(
+                (assignment['Name'] == invigilator and
+                assignment['Date'] == current_date and
+                assignment['Shift'] == current_shift and
+                assignment['Role_Key'] != 'invigilator') for assignment in unified_assignments
+            )
             
             if not is_assigned_higher_role:
                 unified_assignments.append({
@@ -2680,53 +2674,37 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
                     'Source': 'room_invigilator_assignments'
                 })
 
-    # Convert to DataFrame for easier processing
     df_assignments = pd.DataFrame(unified_assignments)
     
-    # Create mapping from (Date, Shift) to Classes for exam classification
     session_classes_map = {}
     for _, tt_row in timetable_df.iterrows():
         date_shift_key = (str(tt_row['Date']), str(tt_row['Shift']))
-        if date_shift_key not in session_classes_map:
-            session_classes_map[date_shift_key] = set()
-        session_classes_map[date_shift_key].add(str(tt_row['Class']).strip())
-
-    # NEW CONVEYANCE LOGIC: Check if a person worked in both shifts on the same date
+        session_classes_map.setdefault(date_shift_key, set()).add(str(tt_row['Class']).strip())
+    
     workers_with_both_shifts = set()
     if not df_assignments.empty:
         df_assignments['Date_dt'] = pd.to_datetime(df_assignments['Date'], format='%d-%m-%Y', errors='coerce')
-        # Group by name and date, then filter for those with both shifts
         shift_counts = df_assignments.groupby(['Name', 'Date'])['Shift'].nunique().reset_index()
         eligible_workers_df = shift_counts[shift_counts['Shift'] == 2]
-        for _, row in eligible_workers_df.iterrows():
-            workers_with_both_shifts.add((row['Name'], row['Date']))
-
-    # Now calculate remuneration for all entries in unified_assignments
+        workers_with_both_shifts.update((row['Name'], row['Date']) for _, row in eligible_workers_df.iterrows())
+    
+    remuneration_data_detailed_raw = []
     for assignment in unified_assignments:
         name = assignment['Name']
         role_key = assignment['Role_Key']
         date = assignment['Date']
         shift = assignment['Shift']
 
-        # Get classes for this session
         session_classes = list(session_classes_map.get((date, shift), set()))
-        is_selected_exam = any(cls in selected_classes_for_bill for cls in [c.strip() for c in session_classes]) if selected_classes_for_bill else True
-
-        # Base remuneration for the shift
+        is_selected_exam = bool(selected_classes_for_bill and any(cls in selected_classes_for_bill for cls in session_classes))
+        
         base_rem_for_shift = remuneration_rules[role_key]['rate']
         
-        # NEW CONVEYANCE LOGIC IMPLEMENTATION (Now includes SCS)
         conveyance = 0
-        if remuneration_rules[role_key]['exam_conveyance']:
-            # Rule 1: A person will be eligible for conveyance only if they worked in both shifts of the same date
-            if (name, date) in workers_with_both_shifts:
-                # Rule 2: If eligible, they will be paid conveyance in the evening shift of a selected exam only.
-                if shift == 'Evening' and is_selected_exam:
-                    conveyance = manual_rates['conveyance_rate']
-                # Rule 3: Even if eligible, they will not be paid conveyance in the morning shift of a selected exam.
-                elif shift == 'Morning' and is_selected_exam:
-                    conveyance = 0
-        
+        if remuneration_rules[role_key]['exam_conveyance'] and (name, date) in workers_with_both_shifts:
+            if shift == 'Evening' and is_selected_exam:
+                conveyance = manual_rates['conveyance_rate']
+
         remuneration_data_detailed_raw.append({
             'Name': name,
             'Role_Key': role_key,
@@ -2744,8 +2722,10 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     # --- Generate Individual Bills ---
     individual_bills = []
     unique_person_roles = df_detailed_remuneration[['Name', 'Role_Display', 'Role_Key']].drop_duplicates()
+    
+    sn_counter = 1
 
-    for idx, row in unique_person_roles.iterrows():
+    for _, row in unique_person_roles.iterrows():
         name = row['Name']
         role_display = row['Role_Display']
         role_key = row['Role_Key']
@@ -2755,210 +2735,212 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             (df_detailed_remuneration['Role_Display'] == role_display)
         ].copy()
         
+        # New SCS Logic
         if role_key == 'senior_center_superintendent':
-            # Separate selected vs non-selected shifts
-            selected_shifts = person_data[person_data['Is_Selected_Exam'] == True]
-            non_selected_shifts = person_data[person_data['Is_Selected_Exam'] == False]
-
-            # Group by date
-            selected_dates = {}
-            non_selected_dates = {}
-
-            for _, shift_row in selected_shifts.iterrows():
-                date = shift_row['Date']
-                selected_dates.setdefault(date, []).append(shift_row['Shift'])
-
-            for _, shift_row in non_selected_shifts.iterrows():
-                date = shift_row['Date']
-                non_selected_dates.setdefault(date, []).append(shift_row['Shift'])
-
-            # Determine eligible days for remuneration
-            eligible_shifts = []
-
-            for _, row in person_data.iterrows():
-                date = row['Date']
-                shift = row['Shift']
-                is_selected = row['Is_Selected_Exam']
-
-                if shift == 'Morning' and is_selected:
-                    # Morning of selected exam: always allowed
-                    eligible_shifts.append(row)
-                elif shift == 'Evening':
-                    if is_selected:
-                        # Evening of selected exam
-                        if 'Morning' not in selected_dates.get(date, []):
-                            # Only include if morning of selected exam is not already worked
-                            eligible_shifts.append(row)
-                    else:
-                        # Evening of non-selected exam
-                        if 'Morning' not in selected_dates.get(date, []):
-                            # Include only if didn't already work morning of selected exam
-                            eligible_shifts.append(row)
-
-            # Final filtered data for SCS
-            filtered_person_data = pd.DataFrame(eligible_shifts)
+            selected_exam_dates = person_data[person_data['Is_Selected_Exam'] == True]['Date'].unique()
+            filtered_person_data = person_data[person_data['Date'].isin(selected_exam_dates)].copy()
         else:
-            # For all other roles
-            if selected_classes_for_bill:
-                filtered_person_data = person_data[person_data['Is_Selected_Exam'] == True].copy()
-            else:
-                filtered_person_data = person_data.copy()
-
-        # Group dates by month for display for morning shifts (filtered data)
-        duty_dates_morning_str = ""
+            filtered_person_data = person_data[person_data['Is_Selected_Exam'] == True].copy()
+        
         morning_shifts_df = filtered_person_data[filtered_person_data['Shift'] == 'Morning']
-        if not morning_shifts_df.empty:
-            morning_shifts_df['Date_dt'] = pd.to_datetime(morning_shifts_df['Date'], format='%d-%m-%Y', errors='coerce')
-            morning_shifts_df = morning_shifts_df.sort_values(by='Date_dt')
-            grouped_dates_morning = morning_shifts_df.groupby(morning_shifts_df['Date_dt'].dt.to_period('M'))['Date_dt'].apply(lambda x: sorted(x.dt.day.tolist()))
-            date_parts = []
-            for period, days in grouped_dates_morning.items():
-                month_name = period.strftime('%b')
-                days_str = ", ".join(map(str, days))
-                date_parts.append(f"{month_name} - {days_str}")
-            if date_parts:
-                duty_dates_morning_str = ", ".join(date_parts) + f" {morning_shifts_df['Date_dt'].min().year}"
-
-        # Group dates by month for display for evening shifts (filtered data)
-        duty_dates_evening_str = ""
         evening_shifts_df = filtered_person_data[filtered_person_data['Shift'] == 'Evening']
+        
+        duty_dates_morning_str = ""
+        if not morning_shifts_df.empty:
+            duty_dates_morning_str = format_dates_by_month(morning_shifts_df['Date'])
+            
+        duty_dates_evening_str = ""
         if not evening_shifts_df.empty:
-            evening_shifts_df['Date_dt'] = pd.to_datetime(evening_shifts_df['Date'], format='%d-%m-%Y', errors='coerce')
-            evening_shifts_df = evening_shifts_df.sort_values(by='Date_dt')
-            grouped_dates_evening = evening_shifts_df.groupby(evening_shifts_df['Date_dt'].dt.to_period('M'))['Date_dt'].apply(lambda x: sorted(x.dt.day.tolist()))
-            date_parts = []
-            for period, days in grouped_dates_evening.items():
-                month_name = period.strftime('%b')
-                days_str = ", ".join(map(str, days))
-                date_parts.append(f"{month_name} - {days_str}")
-            if date_parts:
-                duty_dates_evening_str = ", ".join(date_parts) + f" {evening_shifts_df['Date_dt'].min().year}"
-
+            duty_dates_evening_str = format_dates_by_month(evening_shifts_df['Date'])
+            
         total_morning_shifts = len(morning_shifts_df)
         total_evening_shifts = len(evening_shifts_df)
         total_shifts = total_morning_shifts + total_evening_shifts
-        rate_in_rs = remuneration_rules[role_key]['rate'] if role_key in remuneration_rules else 0
-
-        # Calculate base remuneration
+        rate_in_rs = remuneration_rules[role_key]['rate']
+        
         total_base_remuneration = 0
         if role_key == 'senior_center_superintendent':
-            # Senior CS: Rs. per day based on eligible days
             unique_dates = filtered_person_data['Date'].nunique()
             total_base_remuneration = unique_dates * rate_in_rs
         else:
-            # Other roles (per shift): Filter base remuneration by selected classes
             total_base_remuneration = filtered_person_data['Base_Remuneration_Per_Shift_Unfiltered'].sum()
         
-        # Conveyance is calculated based on all shifts (not filtered by selected classes)
-        total_conveyance = person_data['Conveyance'].sum() 
+        total_conveyance = person_data['Conveyance'].sum()
         
-        # Calculate preparation and closing day remuneration - ROLE SPECIFIC
         total_prep_remuneration = 0
         total_closing_remuneration = 0
         total_holiday_conveyance = 0
         
-        # Check if this person is eligible and assigned prep/closing days for THIS SPECIFIC ROLE
         if remuneration_rules[role_key]['eligible_prep_close']:
             person_assignments = prep_closing_assignments.get(name, {})
             assigned_role = person_assignments.get('role')
             
-            # Only apply prep/closing if the assignment matches current role
             if assigned_role == role_key:
-                # Preparation days
                 prep_days = person_assignments.get('prep_days', [])
                 total_prep_remuneration = len(prep_days) * rate_in_rs
                 
-                # Closing days
                 closing_days = person_assignments.get('closing_days', [])
                 total_closing_remuneration = len(closing_days) * rate_in_rs
                 
-                # Holiday conveyance for prep/closing days that are holidays
                 all_assigned_days = prep_days + closing_days
                 holiday_assigned_days = [day for day in all_assigned_days if day in holiday_dates]
                 total_holiday_conveyance = len(holiday_assigned_days) * manual_rates['holiday_conveyance_allowance_rate']
-
+        
         grand_total_amount = total_base_remuneration + total_conveyance + total_prep_remuneration + total_closing_remuneration + total_holiday_conveyance
-
-        individual_bills.append({
-            'SN': len(individual_bills) + 1,
-            'Name (with role)': f"{name} ({role_display})",
-            'Duty dates of selected class exam Shift (morning)': duty_dates_morning_str,
-            'Duty dates of selected class exam Shift (evening)': duty_dates_evening_str,
-            'Total shifts of selected class exams (morning/evening)': total_shifts,
-            'Rate in Rs': rate_in_rs,
-            'Total Remuneration in Rs': total_base_remuneration,
-            'Total Conveyance (in evening shift)': total_conveyance,
-            'Preparation Day Remuneration': total_prep_remuneration,
-            'Closing Day Remuneration': total_closing_remuneration,
-            'Total Holiday Conveyance Added': total_holiday_conveyance,
-            'Total amount in Rs': grand_total_amount,
-            'Signature': ''
-        })
+        
+        # Only add to bills if the total amount is greater than zero
+        if grand_total_amount > 0:
+            individual_bills.append({
+                'SN': sn_counter,
+                'Name (with role)': f"{name} ({role_display})",
+                'Duty dates of selected class exam Shift (morning)': duty_dates_morning_str,
+                'Duty dates of selected class exam Shift (evening)': duty_dates_evening_str,
+                'Total shifts of selected class exams (morning/evening)': total_shifts,
+                'Rate in Rs': rate_in_rs,
+                'Total Remuneration in Rs': total_base_remuneration,
+                'Total Conveyance (in evening shift)': total_conveyance,
+                'Preparation Day Remuneration': total_prep_remuneration,
+                'Closing Day Remuneration': total_closing_remuneration,
+                'Total Holiday Conveyance Added': total_holiday_conveyance,
+                'Total amount in Rs': grand_total_amount,
+                'Signature': ''
+            })
+            sn_counter += 1
 
     df_individual_bills = pd.DataFrame(individual_bills)
 
     # --- Generate the new Role-wise Summary Matrix ---
     df_role_summary_matrix = generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_rules, prep_closing_assignments, holiday_dates, manual_rates, selected_classes_for_bill)
 
-    # --- Generate Class 3 and Class 4 Worker Bills ---
+    # --- Generate Class 3 and 4 Worker Bills ---
     class_3_4_final_bills = []
 
-    # --- UPDATED LOGIC FOR TOTAL STUDENTS FOR CLASS WORKERS ---
-    # Class 3/4 worker remuneration is based on total unique students, filtered by selected classes
     if selected_classes_for_bill:
-        # Get paper codes for the selected classes from the timetable
         papers_for_selected_classes = timetable_df[timetable_df['Class'].isin(selected_classes_for_bill)]['Paper Code'].unique()
-
-        # Filter assigned seats based on these paper codes
         filtered_assigned_seats = assigned_seats_df[assigned_seats_df['Paper Code'].isin(papers_for_selected_classes)]
-
-        # Calculate total unique students from the filtered list
         total_students_for_class_workers = filtered_assigned_seats['Roll Number'].nunique()
     else:
-        # If no specific class is selected, consider all students across all exams
         total_students_for_class_workers = assigned_seats_df['Roll Number'].nunique()
-
-    # Calculate remuneration for Class 3 workers
-    if unique_class_3_workers:
-        class_3_total_fixed_amount = total_students_for_class_workers * class_worker_rates['class_3_worker']['rate_per_student']
-        num_class_3_workers = len(unique_class_3_workers)
-        rem_per_class_3_worker = class_3_total_fixed_amount / num_class_3_workers if num_class_3_workers > 0 else 0
-
-        for sn, worker_name in enumerate(sorted(list(unique_class_3_workers))):
-            class_3_4_final_bills.append({
-                'S.N.': len(class_3_4_final_bills) + 1,
-                'Name': worker_name,
-                'Role': class_worker_rates['class_3_worker']['role_display'],
-                'Total Students (Center-wide)': total_students_for_class_workers,
-                'Rate per Student (for category)': class_worker_rates['class_3_worker']['rate_per_student'],
-                'Total Remuneration for Category (Rs.)': class_3_total_fixed_amount,
-                'Number of Workers in Category': num_class_3_workers,
-                'Remuneration per Worker in Rs.': rem_per_class_3_worker,
-                'Signature of Receiver': ''
-            })
-
-    # Calculate remuneration for Class 4 workers
-    if unique_class_4_workers:
-        class_4_total_fixed_amount = total_students_for_class_workers * class_worker_rates['class_4_worker']['rate_per_student']
-        num_class_4_workers = len(unique_class_4_workers)
-        rem_per_class_4_worker = class_4_total_fixed_amount / num_class_4_workers if num_class_4_workers > 0 else 0
-
-        for sn, worker_name in enumerate(sorted(list(unique_class_4_workers))):
-            class_3_4_final_bills.append({
-                'S.N.': len(class_3_4_final_bills) + 1,
-                'Name': worker_name,
-                'Role': class_worker_rates['class_4_worker']['role_display'],
-                'Total Students (Center-wide)': total_students_for_class_workers,
-                'Rate per Student (for category)': class_worker_rates['class_4_worker']['rate_per_student'],
-                'Total Remuneration for Category (Rs.)': class_4_total_fixed_amount,
-                'Number of Workers in Category': num_class_4_workers,
-                'Remuneration per Worker in Rs.': rem_per_class_4_worker,
-                'Signature of Receiver': ''
-            })
+    
+    sn_worker_counter = 1
+    for role_key, rate_info in class_worker_rates.items():
+        unique_workers = unique_class_3_workers if role_key == 'class_3_worker' else unique_class_4_workers
+        if unique_workers:
+            total_fixed_amount = total_students_for_class_workers * rate_info['rate_per_student']
+            num_workers = len(unique_workers)
+            rem_per_worker = total_fixed_amount / num_workers if num_workers > 0 else 0
+            
+            for worker_name in sorted(list(unique_workers)):
+                class_3_4_final_bills.append({
+                    'S.N.': sn_worker_counter,
+                    'Name': worker_name,
+                    'Role': rate_info['role_display'],
+                    'Total Students (Center-wide)': total_students_for_class_workers,
+                    'Rate per Student (for category)': rate_info['rate_per_student'],
+                    'Total Remuneration for Category (Rs.)': total_fixed_amount,
+                    'Number of Workers in Category': num_workers,
+                    'Remuneration per Worker in Rs.': rem_per_worker,
+                    'Signature of Receiver': ''
+                })
+                sn_worker_counter += 1
 
     df_class_3_4_final_bills = pd.DataFrame(class_3_4_final_bills)
     
     return df_individual_bills, df_role_summary_matrix, df_class_3_4_final_bills
+    
+def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_rules, prep_closing_assignments, holiday_dates, manual_rates, selected_classes_for_bill):
+    """
+    Helper function to generate the new role summary matrix with the 'Paper' column.
+    """
+    role_columns = [rule for rule in remuneration_rules] + ['class_3_worker', 'class_4_worker']
+    
+    # NEW: Include Paper Name and Code
+    summary_data = []
+    
+    unique_sessions = df_detailed_remuneration[['Date', 'Shift']].drop_duplicates().to_records(index=False)
+    
+    for date, shift in unique_sessions:
+        session_data = {'Date': date, 'Shift': shift, 'Paper': ''}
+        session_df = df_detailed_remuneration[(df_detailed_remuneration['Date'] == date) & (df_detailed_remuneration['Shift'] == shift)].copy()
+        
+        # Get Paper information for the session
+        classes_in_session = [c for sublist in session_df['Classes_in_Session'] for c in sublist]
+        is_selected_exam = any(c in selected_classes_for_bill for c in classes_in_session)
+        
+        # Only include selected exams in the summary matrix
+        if not is_selected_exam:
+            continue
+        
+        # Get the paper info from the timetable
+        tt_row = timetable_df[(timetable_df['Date'] == date) & (timetable_df['Shift'] == shift)].iloc[0]
+        session_data['Paper'] = f"{tt_row['Paper Name']} ({tt_row['Paper Code']})"
+
+        # Calculate role totals for this session
+        for role_key in role_columns:
+            total_remuneration = 0
+            
+            if role_key == 'senior_center_superintendent':
+                if 'Morning' == shift:
+                    total_remuneration = remuneration_rules[role_key]['rate']
+                else: 
+                    total_remuneration = 0
+            else:
+                role_df = session_df[session_df['Role_Key'] == role_key]
+                if not role_df.empty:
+                    total_remuneration = role_df['Base_Remuneration_Per_Shift_Unfiltered'].sum()
+            
+            session_data[role_key] = total_remuneration
+            
+        # Calculate conveyance for the session
+        session_data['conveyance_total'] = session_df['Conveyance'].sum()
+        
+        total_prep_close_rem = 0
+        for name, assign_info in prep_closing_assignments.items():
+            if assign_info.get('role') in remuneration_rules and assign_info.get('role') != 'senior_center_superintendent':
+                 if date in assign_info.get('prep_days', []) or date in assign_info.get('closing_days', []):
+                    total_prep_close_rem += remuneration_rules[assign_info['role']]['rate']
+
+        session_data['total_prep_close'] = total_prep_close_rem
+        
+        summary_data.append(session_data)
+        
+    df_role_summary_matrix = pd.DataFrame(summary_data)
+    
+    # Calculate Daily Total and clean up columns
+    df_role_summary_matrix['Daily Total'] = df_role_summary_matrix[[
+        'senior_center_superintendent', 'center_superintendent', 'assistant_center_superintendent',
+        'permanent_invigilator', 'invigilator', 'conveyance_total'
+    ]].sum(axis=1) + df_role_summary_matrix['total_prep_close']
+    
+    df_role_summary_matrix['Date & Shift'] = df_role_summary_matrix['Date'] + ' (' + df_role_summary_matrix['Shift'] + ')'
+    
+    # Rename and reorder columns for final output
+    df_role_summary_matrix = df_role_summary_matrix.rename(columns={
+        'senior_center_superintendent': 'SCS', 'center_superintendent': 'CS', 'assistant_center_superintendent': 'ACS',
+        'permanent_invigilator': 'PI', 'invigilator': 'Invigilators', 'conveyance_total': 'Conveyance'
+    })
+    
+    # Drop the temporary column used for calculation
+    df_role_summary_matrix = df_role_summary_matrix.drop(columns=['total_prep_close', 'Date', 'Shift'])
+    
+    return df_role_summary_matrix[['Date & Shift', 'Paper', 'SCS', 'CS', 'ACS', 'PI', 'Invigilators', 'Conveyance', 'Daily Total']]
+
+def format_dates_by_month(date_series):
+    """Helper function to format dates as 'Month - dd, dd, ...'"""
+    if date_series.empty:
+        return ""
+    
+    date_series = pd.to_datetime(date_series, format='%d-%m-%Y', errors='coerce').sort_values()
+    grouped_dates = date_series.groupby(date_series.dt.to_period('M'))
+    
+    date_parts = []
+    for period, dates in grouped_dates:
+        month_name = period.strftime('%b')
+        days_str = ", ".join(map(str, sorted(dates.dt.day.tolist())))
+        date_parts.append(f"{month_name} - {days_str}")
+        
+    year = date_series.min().year
+    return ", ".join(date_parts) + f" {year}"
 
 def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_rules, prep_closing_assignments, holiday_dates, manual_rates, selected_classes_for_bill):
     """
