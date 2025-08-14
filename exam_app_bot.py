@@ -113,29 +113,7 @@ def load_prep_closing_assignments_from_supabase():
         traceback.print_exc()
         st.error(f"❌ Error loading prep/closing assignments from Supabase: {e}")
         return {}
-    # Inside load_prep_closing_assignments_from_supabase()
-    try:
-        response = supabase.table("prep_closing_assignments").select("*").execute()
-        st.write(f"DEBUG: Supabase response for prep_closing_assignments: {response.data}") # <--- ADD THIS
-        if not response.data:
-            return {}
-        # ... rest of your code
-    except Exception as e:
-        st.error(f"❌ Error loading prep/closing assignments from Supabase: {e}")
-        st.write(f"DEBUG: Exception details: {traceback.format_exc()}") # <--- ADD THIS
-        return {}
-
-    # Inside load_global_setting_from_supabase()
-    try:
-        response = supabase.table("global_settings").select("setting_value").eq("setting_key", setting_key).single().execute()
-        st.write(f"DEBUG: Supabase response for global_settings '{setting_key}': {response.data}") # <--- ADD THIS
-        if response.data and 'setting_value' in response.data:
-            return json.loads(response.data['setting_value'])
-        return None
-    except Exception as e:
-        # Expected if no record found, but can print for debugging if unexpected errors occur
-        # st.write(f"DEBUG: Exception details for global_setting: {traceback.format_exc()}") # <--- ADD THIS if needed
-        return None
+    
 
 # New function to save global settings (like holiday dates) to Supabase
 def save_global_setting_to_supabase(setting_key, setting_value):
