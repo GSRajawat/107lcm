@@ -168,7 +168,7 @@ def load_global_setting_from_supabase(setting_key):
 # --- Configuration ---
 CS_REPORTS_FILE = "cs_reports.csv"
 EXAM_TEAM_MEMBERS_FILE = "exam_team_members.csv"
-SHIFT_ASSIGNMENTS_FILE = "shift_assignments.csv"
+shift_ASSIGNMENTS_FILE = "shift_assignments.csv"
 ROOM_INVIGILATORS_FILE = "room_invigilator_assignments.csv" # New file for room-wise invigilators
 SITTING_PLAN_FILE = "sitting_plan.csv" # Standardized sitting plan filename
 TIMETABLE_FILE = "timetable.csv" # Standardized timetable filename
@@ -202,8 +202,8 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
             'Paper Name': 'paper_name',
             'Room Number': 'room_number',
             'Seat Number': 'seat_number',
-            'Date': 'date',
-            'Shift': 'shift',
+            'date': 'date',
+            'shift': 'shift',
             'SN': 'sn',
             'Time': 'time',
             'Class': 'class',
@@ -234,7 +234,7 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
             'Seat Number 9': 'seat_number_9',
             'Seat Number 10': 'seat_number_10',
 
-            # Attestation specific MAPPINGS ADDED/UPDATED HERE
+            # Attestation specific MAPPINGS ADDED/UPdateD HERE
             'Enrollment Number': 'enrollment_number',
             'Session': 'session',
             'Regular/Backlog': 'regular_backlog',
@@ -405,8 +405,8 @@ def download_supabase_to_csv(table_name, filename):
     # Reverse column name mapping (database columns back to CSV headers)
     reverse_column_mappings = {
         'roll_number': 'Roll Number', 'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
-        'room_number': 'Room Number', 'seat_number': 'Seat Number', 'date': 'Date',
-        'shift': 'Shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper',
+        'room_number': 'Room Number', 'seat_number': 'Seat Number', 'date': 'date',
+        'shift': 'shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper',
         'name': 'Name',
         'roll_number_1': 'Roll Number 1', 'roll_number_2': 'Roll Number 2',
         'roll_number_3': 'Roll Number 3', 'Roll Number 4': 'Roll Number 4',
@@ -450,7 +450,7 @@ def download_supabase_to_csv(table_name, filename):
     df.rename(columns=actual_reverse_column_mappings, inplace=True)
     
     # Handle date format conversion (YYYY-MM-DD back to DD-MM-YYYY)
-    if 'Date' in df.columns:
+    if 'date' in df.columns:
         def format_date_for_csv(d_str):
             if pd.isna(d_str) or not isinstance(d_str, str) or d_str.strip() == '':
                 return ''
@@ -459,7 +459,7 @@ def download_supabase_to_csv(table_name, filename):
                 return dt_obj.strftime('%d-%m-%Y')
             except ValueError:
                 return d_str
-        df['Date'] = df['Date'].apply(format_date_for_csv)
+        df['date'] = df['date'].apply(format_date_for_csv)
     
     # Handle JSON fields back to string format
     json_fields_to_str = [
@@ -502,7 +502,7 @@ def download_attestation_data_to_parent_folder():
 def load_data():
     sitting_plan_df = pd.DataFrame()
     timetable_df = pd.DataFrame()
-    assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+    assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
     attestation_df = pd.DataFrame()
 
     # --- Initial Downloads from Supabase if local files are missing/empty ---
@@ -570,7 +570,7 @@ def load_data():
             if rename_map:
                 temp_assigned_df.rename(columns=rename_map, inplace=True)
             
-            required_assigned_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"]
+            required_assigned_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"]
             missing_cols = [col for col in required_assigned_cols if col not in temp_assigned_df.columns]
 
             if missing_cols:
@@ -579,13 +579,13 @@ def load_data():
             else:
                 assigned_seats_df = temp_assigned_df[required_assigned_cols].copy()
                 assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].apply(_format_paper_code)
-                for col in ["Roll Number", "Room Number", "Seat Number", "Date", "Shift"]:
+                for col in ["Roll Number", "Room Number", "Seat Number", "date", "shift"]:
                     if col in assigned_seats_df.columns:
                         assigned_seats_df[col] = assigned_seats_df[col].astype(str)
 
         except Exception as e:
             st.error(f"Error loading {ASSIGNED_SEATS_FILE} from local file: {e}. Ensure it's a valid CSV file.")
-            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
     
     # Check for attestation_data_combined in the parent folder
     current_script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -637,10 +637,10 @@ def _format_paper_code(code_str):
 
 
 def load_shift_assignments():
-    if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
+    if os.path.exists(shift_ASSIGNMENTS_FILE):
         try:
             # Use a robust engine to handle inconsistent data
-            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE, engine='python')
+            df = pd.read_csv(shift_ASSIGNMENTS_FILE, engine='python')
             
             def safe_literal_eval(val):
                 if isinstance(val, str) and val.strip():
@@ -704,8 +704,8 @@ def save_shift_assignment(date, shift, assignments):
         assignments_df = pd.concat([assignments_df, new_row_df], ignore_index=True)
     
     try:
-        assignments_df.to_csv(SHIFT_ASSIGNMENTS_FILE, index=False)
-        return True, "Shift assignments saved successfully!"
+        assignments_df.to_csv(shift_ASSIGNMENTS_FILE, index=False)
+        return True, "shift assignments saved successfully!"
     except Exception as e:
         return False, f"Error saving shift assignments: {e}"
 
@@ -724,7 +724,7 @@ def load_data():
     # Initialize all DataFrames at the beginning
     sitting_plan_df = pd.DataFrame()
     timetable_df = pd.DataFrame()
-    assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+    assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
     attestation_df = pd.DataFrame()
 
     # --- Load sitting_plan_df ---
@@ -784,7 +784,7 @@ def load_data():
             
             # Now, after potential renaming and aggressive cleaning, ensure the required columns are present.
             # If 'Paper Code' is still not there, it means the source file genuinely lacks it or has an unrecognized variant.
-            required_assigned_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"]
+            required_assigned_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"]
             missing_cols = [col for col in required_assigned_cols if col not in temp_assigned_df.columns]
 
             if missing_cols:
@@ -795,13 +795,13 @@ def load_data():
                 assigned_seats_df = temp_assigned_df[required_assigned_cols].copy() 
                 assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].apply(_format_paper_code)
                 # Ensure all are strings as per original intent for safety
-                for col in ["Roll Number", "Room Number", "Seat Number", "Date", "Shift"]:
+                for col in ["Roll Number", "Room Number", "Seat Number", "date", "shift"]:
                     if col in assigned_seats_df.columns: # Double-check column existence after selection
                         assigned_seats_df[col] = assigned_seats_df[col].astype(str)
 
         except Exception as e:
             st.error(f"Error loading {ASSIGNED_SEATS_FILE}: {e}. Ensure it's a valid CSV file.")
-            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"])
+            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
     
     # --- Load attestation_df ---
     if os.path.exists(ATTESTATION_DATA_FILE):
@@ -943,8 +943,8 @@ def _get_session_students_raw_data(date_str, shift, assigned_seats_df, timetable
 
     # Filter timetable for the given date and shift
     current_day_exams_tt = timetable_df[
-        (timetable_df["Date"].astype(str).str.strip() == date_str) &
-        (timetable_df["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+        (timetable_df["date"].astype(str).str.strip() == date_str) &
+        (timetable_df["shift"].astype(str).str.strip().str.lower() == shift.lower())
     ].copy()
 
     if current_day_exams_tt.empty:
@@ -958,8 +958,8 @@ def _get_session_students_raw_data(date_str, shift, assigned_seats_df, timetable
 
         # Filter assigned_seats_df for students assigned to this specific exam session
         current_exam_assigned_students = assigned_seats_df[
-            (assigned_seats_df["Date"].astype(str).str.strip() == date_str) &
-            (assigned_seats_df["Shift"].astype(str).str.strip().str.lower() == shift.lower()) &
+            (assigned_seats_df["date"].astype(str).str.strip() == date_str) &
+            (assigned_seats_df["shift"].astype(str).str.strip().str.lower() == shift.lower()) &
             (assigned_seats_df["Paper Code"].astype(str).str.strip() == tt_paper_code) & # Use formatted paper code
             (assigned_seats_df["Paper Name"].astype(str).str.strip() == tt_paper_name)
         ]
@@ -1013,8 +1013,8 @@ def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df
 
     # Extract exam_time and class_summary_header from timetable (similar to original logic)
     current_day_exams_tt = timetable[
-        (timetable["Date"].astype(str).str.strip() == date_str) &
-        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+        (timetable["date"].astype(str).str.strip() == date_str) &
+        (timetable["shift"].astype(str).str.strip().str.lower() == shift.lower())
     ]
     exam_time = current_day_exams_tt.iloc[0]["Time"].strip() if "Time" in current_day_exams_tt.columns else "TBD"
     unique_classes = current_day_exams_tt['Class'].dropna().astype(str).str.strip().unique()
@@ -1133,8 +1133,8 @@ def save_room_invigilator_assignment(date, shift, room_num, invigilators):
     if assignment_key in (inv_df['date'] + '_' + inv_df['shift'] + '_' + inv_df['room_num'].astype(str)).values:
         # Update existing record
         idx_to_update = inv_df[
-            (inv_df['Date'] == date) & 
-            (inv_df['Shift'] == shift) & 
+            (inv_df['date'] == date) & 
+            (inv_df['shift'] == shift) & 
             (inv_df['room_num'].astype(str) == str(room_num))
         ].index[0]
         for col, val in data_for_df.items():
@@ -1178,8 +1178,8 @@ def get_all_exams(roll_number, sitting_plan, timetable):
                 # Add all found timetable matches for this student's paper to the list
                 for _, tt_row in matches_in_timetable.iterrows():
                     student_exams.append({
-                        "Date": tt_row["Date"],
-                        "Shift": tt_row["Shift"],
+                        "date": tt_row["date"],
+                        "shift": tt_row["shift"],
                         "Class": _class,
                         "Paper": paper,
                         "Paper Code": paper_code,
@@ -1215,7 +1215,7 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                     (timetable["Paper"].astype(str).str.strip() == paper) &
                     (timetable["Paper Code"].astype(str).str.strip() == paper_code) &
                     (timetable["Paper Name"].astype(str).str.strip() == paper_name) &
-                    (timetable["Date"].astype(str).str.strip() == date_str) # Match against the provided date
+                    (timetable["date"].astype(str).str.strip() == date_str) # Match against the provided date
                 ]
 
                 if not matches_in_timetable.empty:
@@ -1243,8 +1243,8 @@ def get_sitting_details(roll_number, date, sitting_plan, timetable):
                             "Paper": paper,
                             "Paper Code": paper_code,
                             "Paper Name": paper_name,
-                            "Date": tt_row["Date"],
-                            "Shift": tt_row["Shift"],
+                            "date": tt_row["date"],
+                            "shift": tt_row["shift"],
                             "Mode": sp_row.get("Mode", ""), # Use .get() for safe access
                             "Type": sp_row.get("Type", "") # Use .get() for safe access
                         })
@@ -1262,8 +1262,8 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
 
     # Extract exam_time and class_summary_header from timetable (similar to original logic)
     current_day_exams_tt = timetable[
-        (timetable["Date"].astype(str).str.strip() == date_str) &
-        (timetable["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+        (timetable["date"].astype(str).str.strip() == date_str) &
+        (timetable["shift"].astype(str).str.strip().str.lower() == shift.lower())
     ]
     exam_time = current_day_exams_tt.iloc[0]["Time"].strip() if "Time" in current_day_exams_tt.columns else "TBD"
     unique_classes = current_day_exams_tt['Class'].dropna().astype(str).str.strip().unique()
@@ -1516,7 +1516,7 @@ def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_
         df_new_timetable_entries = pd.DataFrame(unique_exams_for_timetable).drop_duplicates().reset_index(drop=True)
 
         # Define expected structure
-        expected_columns = ["SN", "Date", "Shift", "Time", "Class", "Paper", "Paper Code", "Paper Name"]
+        expected_columns = ["SN", "date", "shift", "Time", "Class", "Paper", "Paper Code", "Paper Name"]
 
         # Load existing timetable if exists
         if os.path.exists(output_timetable_path):
@@ -1546,7 +1546,7 @@ def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_
         combined_df = pd.concat([existing_timetable_df, df_new_timetable_entries], ignore_index=True)
 
         # Fields that define uniqueness of a timetable entry (excluding SN)
-        unique_fields = ["Date", "Shift", "Time", "Class", "Paper", "Paper Code", "Paper Name"]
+        unique_fields = ["date", "shift", "Time", "Class", "Paper", "Paper Code", "Paper Name"]
 
         # Remove duplicates based on content
         df_timetable_final = combined_df.drop_duplicates(subset=unique_fields, keep='first').reset_index(drop=True)
@@ -1800,8 +1800,8 @@ def get_unassigned_students_for_session(date_str, shift, sitting_plan_df, timeta
 
     # 1. Filter timetable for the given date and shift
     relevant_tt_exams = timetable_df[
-        (timetable_df["Date"].astype(str).str.strip() == date_str) &
-        (timetable_df["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+        (timetable_df["date"].astype(str).str.strip() == date_str) &
+        (timetable_df["shift"].astype(str).str.strip().str.lower() == shift.lower())
     ].copy()
 
     if relevant_tt_exams.empty:
@@ -1859,8 +1859,8 @@ def get_session_paper_summary(date_str, shift, sitting_plan_df, assigned_seats_d
 
     # Filter timetable for the given date and shift
     relevant_tt_exams = timetable_df[
-        (timetable_df["Date"].astype(str).str.strip() == date_str) &
-        (timetable_df["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+        (timetable_df["date"].astype(str).str.strip() == date_str) &
+        (timetable_df["shift"].astype(str).str.strip().str.lower() == shift.lower())
     ].copy()
 
     if relevant_tt_exams.empty:
@@ -1886,8 +1886,8 @@ def get_session_paper_summary(date_str, shift, sitting_plan_df, assigned_seats_d
         assigned_rolls_for_paper = set(
             assigned_seats_df[
                 (assigned_seats_df["Paper Code"].astype(str).str.strip() == paper_code) & # Use formatted paper code
-                (assigned_seats_df["Date"] == date_str) &
-                (assigned_seats_df["Shift"] == shift)
+                (assigned_seats_df["date"] == date_str) &
+                (assigned_seats_df["shift"] == shift)
             ]["Roll Number"].astype(str).tolist()
         )
         num_assigned_students = len(assigned_rolls_for_paper)
@@ -1914,22 +1914,22 @@ def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_
         st.warning("Please upload 'sitting_plan.csv' and 'timetable.csv' via the Admin Panel to generate this report.")
         return
 
-    # Date and Shift filters for the report
-    report_date_options = sorted(timetable_df["Date"].dropna().unique())
-    report_shift_options = sorted(timetable_df["Shift"].dropna().unique())
+    # date and shift filters for the report
+    report_date_options = sorted(timetable_df["date"].dropna().unique())
+    report_shift_options = sorted(timetable_df["shift"].dropna().unique())
 
     if not report_date_options or not report_shift_options:
         st.info("No exam dates or shifts found in the timetable to generate a report.")
         return
 
-    selected_report_date = st.selectbox("Select Date", report_date_options, key="room_report_date")
-    selected_report_shift = st.selectbox("Select Shift", report_shift_options, key="room_report_shift")
+    selected_report_date = st.selectbox("Select date", report_date_options, key="room_report_date")
+    selected_report_shift = st.selectbox("Select shift", report_shift_options, key="room_report_shift")
 
     if st.button("Generate Room Occupancy Report"):
         # Filter sitting plan for relevant exams on this date/shift
         relevant_tt_exams = timetable_df[
-            (timetable_df["Date"].astype(str).str.strip() == selected_report_date) &
-            (timetable_df["Shift"].astype(str).str.strip().str.lower() == selected_report_shift.lower())
+            (timetable_df["date"].astype(str).str.strip() == selected_report_date) &
+            (timetable_df["shift"].astype(str).str.strip().str.lower() == selected_report_shift.lower())
         ]
 
         if relevant_tt_exams.empty:
@@ -1980,8 +1980,8 @@ def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_
             # Get assigned students for this room for the selected session
             room_assigned_students_df = assigned_seats_df[
                 (assigned_seats_df["Room Number"] == room_num) &
-                (assigned_seats_df["Date"] == selected_report_date) &
-                (assigned_seats_df["Shift"] == selected_report_shift)
+                (assigned_seats_df["date"] == selected_report_date) &
+                (assigned_seats_df["shift"] == selected_report_shift)
             ]
             assigned_students_in_room = len(room_assigned_students_df)
             
@@ -2038,20 +2038,20 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
     output_string_parts = []
 
     # --- Robust Checks for essential columns ---
-    required_timetable_cols = ["Date", "Shift", "Time", "Class", "Paper Code", "Paper Name"]
+    required_timetable_cols = ["date", "shift", "Time", "Class", "Paper Code", "Paper Name"]
     for col in required_timetable_cols:
         if col not in timetable_df.columns:
             return f"Error: Missing essential column '{col}' in timetable.csv. Please ensure the file is correctly formatted."
 
-    required_assigned_seats_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "Date", "Shift"]
+    required_assigned_seats_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"]
     for col in required_assigned_seats_cols:
         if col not in assigned_seats_df.columns:
             return f"Error: Missing essential column '{col}' in assigned_seats.csv. Please ensure seats are assigned and the file is correctly formatted."
 
     # 1. Get header information from timetable
     relevant_tt_exams = timetable_df[
-        (timetable_df["Date"].astype(str).str.strip() == date_str) &
-        (timetable_df["Shift"].astype(str).str.strip().str.lower() == shift.lower())
+        (timetable_df["date"].astype(str).str.strip() == date_str) &
+        (timetable_df["shift"].astype(str).str.strip().str.lower() == shift.lower())
     ]
 
     if relevant_tt_exams.empty:
@@ -2073,12 +2073,12 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
     # Static header lines
     output_string_parts.append(",,,,,,,,,\nजीवाजी विश्वविद्यालय ग्वालियर ,,,,,,,,,\n\"परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107 \",,,,,,,,,\n")
     output_string_parts.append(f"{class_summary_header},,,,,,,,,\n")
-    output_string_parts.append(f"Date :- ,,{date_str},,Shift :-,{shift},,Time :- ,,\n")
+    output_string_parts.append(f"date :- ,,{date_str},,shift :-,{shift},,Time :- ,,\n")
 
     # 2. Get all assigned students for the given date and shift
     assigned_students_for_session = assigned_seats_df[
-        (assigned_seats_df["Date"] == date_str) &
-        (assigned_seats_df["Shift"] == shift)
+        (assigned_seats_df["date"] == date_str) &
+        (assigned_seats_df["shift"] == shift)
     ].copy()
 
     if assigned_students_for_session.empty:
@@ -2216,8 +2216,8 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
     # Get exam details specific to the UFM incident from assigned_seats and timetable
     relevant_assigned_seat = assigned_seats_df[
         (assigned_seats_df['Roll Number'].astype(str).str.strip() == ufm_roll_number) &
-        (assigned_seats_df['Date'].astype(str).str.strip() == report_date) &
-        (assigned_seats_df['Shift'].astype(str).str.strip() == report_shift) &
+        (assigned_seats_df['date'].astype(str).str.strip() == report_date) &
+        (assigned_seats_df['shift'].astype(str).str.strip() == report_shift) &
         (assigned_seats_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
         (assigned_seats_df['Paper Name'].astype(str).str.strip() == report_paper_name)
     ]
@@ -2233,8 +2233,8 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
         exam_room_number = str(assigned_info['Room Number']).strip()
         
         matching_timetable_entry = timetable_df[
-            (timetable_df['Date'].astype(str).str.strip() == report_date) &
-            (timetable_df['Shift'].astype(str).str.strip() == report_shift) &
+            (timetable_df['date'].astype(str).str.strip() == report_date) &
+            (timetable_df['shift'].astype(str).str.strip() == report_shift) &
             (timetable_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
             (timetable_df['Paper Name'].astype(str).str.strip() == report_paper_name)
         ]
@@ -2244,8 +2244,8 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
     else:
         # Fallback if student is UFM'd but not found in assigned_seats for that specific session.
         matching_timetable_entry = timetable_df[
-            (timetable_df['Date'].astype(str).str.strip() == report_date) &
-            (timetable_df['Shift'].astype(str).str.strip() == report_shift) &
+            (timetable_df['date'].astype(str).str.strip() == report_date) &
+            (timetable_df['shift'].astype(str).str.strip() == report_shift) &
             (timetable_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
             (timetable_df['Paper Name'].astype(str).str.strip() == report_paper_name)
         ]
@@ -2268,8 +2268,8 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
     form_parts.append(f"\n**6. College Name:** {student_detail.get('College Name', 'N/A')}")
     form_parts.append(f"\n**7. Exam Center Name:** {student_detail.get('Exam Centre', 'N/A')} Code: G107")
     form_parts.append(f"\n**8. Paper Code & Paper Name:** {exam_paper_code} - {exam_paper_name}")
-    form_parts.append(f"\n**9. Date:** {report_date}")
-    form_parts.append(f"**10. Time:** {report_shift} Shift ({exam_time})")
+    form_parts.append(f"\n**9. date:** {report_date}")
+    form_parts.append(f"**10. Time:** {report_shift} shift ({exam_time})")
     form_parts.append(f"\n**11. Time of UFM:** _________________________")
     form_parts.append(f"**12. Name of Book/Material:** _________________________")
     form_parts.append(f"**13. Number of pages/details:** _________________________")
@@ -2300,8 +2300,8 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
         # Filter assigned_seats by roll number, date, shift, paper code, paper name
         relevant_assigned_seat = assigned_seats_df[
             (assigned_seats_df['Roll Number'].astype(str).str.strip() == ufm_roll_number) &
-            (assigned_seats_df['Date'].astype(str).str.strip() == report_date) &
-            (assigned_seats_df['Shift'].astype(str).str.strip() == report_shift) &
+            (assigned_seats_df['date'].astype(str).str.strip() == report_date) &
+            (assigned_seats_df['shift'].astype(str).str.strip() == report_shift) &
             (assigned_seats_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
             (assigned_seats_df['Paper Name'].astype(str).str.strip() == report_paper_name)
         ]
@@ -2318,8 +2318,8 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
             
             # Get exam time and class from timetable using date, shift, paper code, paper name
             matching_timetable_entry = timetable_df[
-                (timetable_df['Date'].astype(str).str.strip() == report_date) &
-                (timetable_df['Shift'].astype(str).str.strip() == report_shift) &
+                (timetable_df['date'].astype(str).str.strip() == report_date) &
+                (timetable_df['shift'].astype(str).str.strip() == report_shift) &
                 (timetable_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
                 (timetable_df['Paper Name'].astype(str).str.strip() == report_paper_name)
             ]
@@ -2331,8 +2331,8 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
             # This might happen if they were unassigned but still appeared for exam.
             # In such cases, we still use the report_paper_code/name but Room will be N/A.
             matching_timetable_entry = timetable_df[
-                (timetable_df['Date'].astype(str).str.strip() == report_date) &
-                (timetable_df['Shift'].astype(str).str.strip() == report_shift) &
+                (timetable_df['date'].astype(str).str.strip() == report_date) &
+                (timetable_df['shift'].astype(str).str.strip() == report_shift) &
                 (timetable_df['Paper Code'].astype(str).str.strip() == _format_paper_code(report_paper_code)) &
                 (timetable_df['Paper Name'].astype(str).str.strip() == report_paper_name)
             ]
@@ -2356,8 +2356,8 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
         form_parts.append(f"\n**6. College Name:** {student_detail.get('College Name', 'N/A')}")
         form_parts.append(f"\n**7. Exam Center Name:** {student_detail.get('Exam Centre', 'N/A')} Code: G107")
         form_parts.append(f"\n**8. Paper Code & Paper Name:** {exam_paper_code} - {exam_paper_name}")
-        form_parts.append(f"\n**9. Date:** {report_date}")
-        form_parts.append(f"**10. Time:** {report_shift} Shift ({exam_time})")
+        form_parts.append(f"\n**9. date:** {report_date}")
+        form_parts.append(f"**10. Time:** {report_shift} shift ({exam_time})")
         form_parts.append(f"\n**11. Time of UFM:** _________________________")
         form_parts.append(f"**12. Name of Book/Material:** _________________________")
         form_parts.append(f"**13. Number of pages/details:** _________________________")
@@ -2440,8 +2440,8 @@ def display_report_panel():
 
     # Merge with room_invigilators_df to add invigilator info
     if not room_invigilators_df.empty:
-        room_invigilators_df['date'] = room_invigilators_df['Date'].astype(str).str.strip()
-        room_invigilators_df['shift'] = room_invigilators_df['Shift'].astype(str).str.strip().str.lower()
+        room_invigilators_df['date'] = room_invigilators_df['date'].astype(str).str.strip()
+        room_invigilators_df['shift'] = room_invigilators_df['shift'].astype(str).str.strip().str.lower()
         room_invigilators_df['room_num'] = room_invigilators_df['room_num'].astype(str).str.strip()
 
         merged_reports_df = pd.merge(
@@ -2626,8 +2626,8 @@ def display_report_panel():
     unique_rooms = sorted(merged_reports_df['room_num'].unique())
     unique_papers = sorted(merged_reports_df['paper_name'].unique())
 
-    filter_date = st.selectbox("Filter by Date", ["All"] + unique_dates, key="report_filter_date")
-    filter_shift = st.selectbox("Filter by Shift", ["All"] + unique_shifts, key="report_filter_shift")
+    filter_date = st.selectbox("Filter by date", ["All"] + unique_dates, key="report_filter_date")
+    filter_shift = st.selectbox("Filter by shift", ["All"] + unique_shifts, key="report_filter_shift")
     filter_room = st.selectbox("Filter by Room Number", ["All"] + unique_rooms, key="report_filter_room")
     filter_paper = st.selectbox("Filter by Paper Name", ["All"] + unique_papers, key="report_filter_paper")
 
@@ -2651,7 +2651,7 @@ def display_report_panel():
             'date', 'shift', 'room_num', 'paper_code', 'paper_name', 'invigilators', # 'invigilators' is now from merge
             'absent_roll_numbers', 'ufm_roll_numbers'
         ]].rename(columns={
-            'date': 'Date', 'shift': 'Shift', 'room_num': 'Room',
+            'date': 'date', 'shift': 'shift', 'room_num': 'Room',
             'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
             'invigilators': 'Invigilators',
             'absent_roll_numbers': 'Absent Roll Numbers',
@@ -2664,8 +2664,8 @@ def display_report_panel():
         for _, row in filtered_reports_df.iterrows():
             for roll in row['absent_roll_numbers']:
                 absent_list_data.append({
-                    'Date': row['date'],
-                    'Shift': row['shift'],
+                    'date': row['date'],
+                    'shift': row['shift'],
                     'Room': row['room_num'],
                     'Paper Code': row['paper_code'],
                     'Paper Name': row['paper_name'],
@@ -2693,8 +2693,8 @@ def display_report_panel():
         for _, row in filtered_reports_df.iterrows():
             for roll in row['ufm_roll_numbers']:
                 ufm_list_data.append({
-                    'Date': row['date'],
-                    'Shift': row['shift'],
+                    'date': row['date'],
+                    'shift': row['shift'],
                     'Room': row['room_num'],
                     'Paper Code': row['paper_code'],
                     'Paper Name': row['paper_name'],
@@ -2759,15 +2759,15 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     if selected_classes_for_bill:
         timetable_df['Class'] = timetable_df['Class'].str.strip()
         filtered_timetable_dates = timetable_df[timetable_df['Class'].isin(selected_classes_for_bill)]
-        selected_dates = set(filtered_timetable_dates['Date'].unique())
-        selected_shifts = set(filtered_timetable_dates['Shift'].unique())
+        selected_dates = set(filtered_timetable_dates['date'].unique())
+        selected_shifts = set(filtered_timetable_dates['shift'].unique())
     else:
-        selected_dates = set(timetable_df['Date'].unique())
-        selected_shifts = set(timetable_df['Shift'].unique())
+        selected_dates = set(timetable_df['date'].unique())
+        selected_shifts = set(timetable_df['shift'].unique())
 
-    # --- UPDATED LOGIC FOR CLASS 3 AND 4 WORKERS ---
+    # --- UPdateD LOGIC FOR CLASS 3 AND 4 WORKERS ---
     # Populate the worker lists only from assignments on selected exam dates
-    filtered_shift_assignments = shift_assignments_df[shift_assignments_df['Date'].isin(selected_dates)]
+    filtered_shift_assignments = shift_assignments_df[shift_assignments_df['date'].isin(selected_dates)]
     
     for index, row in filtered_shift_assignments.iterrows():
         if 'class_3_worker' in row and isinstance(row['class_3_worker'], list):
@@ -2777,8 +2777,8 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     
     # OLD LOGIC for other roles - no changes here
     for index, row in shift_assignments_df.iterrows():
-        current_date = row['Date']
-        current_shift = row['Shift']
+        current_date = row['date']
+        current_shift = row['shift']
         
         for role_col in remuneration_rules.keys():
             if role_col in row and isinstance(row[role_col], list):
@@ -2786,22 +2786,22 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
                     unified_assignments.append({
                         'Name': person,
                         'Role_Key': role_col,
-                        'Date': current_date,
-                        'Shift': current_shift,
+                        'date': current_date,
+                        'shift': current_shift,
                         'Source': 'shift_assignments'
                     })
     
     for index, row in room_invigilator_assignments_df.iterrows():
-        current_date = row['Date']
-        current_shift = row['Shift']
+        current_date = row['date']
+        current_shift = row['shift']
         invigilators_list = row['invigilators']
 
         for invigilator in invigilators_list:
             is_assigned_higher_role = False
             for assignment in unified_assignments:
                 if (assignment['Name'] == invigilator and
-                    assignment['Date'] == current_date and
-                    assignment['Shift'] == current_shift and
+                    assignment['date'] == current_date and
+                    assignment['shift'] == current_shift and
                     assignment['Role_Key'] != 'invigilator'):
                     is_assigned_higher_role = True
                     break
@@ -2810,8 +2810,8 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
                 unified_assignments.append({
                     'Name': invigilator,
                     'Role_Key': 'invigilator',
-                    'Date': current_date,
-                    'Shift': current_shift,
+                    'date': current_date,
+                    'shift': current_shift,
                     'Source': 'room_invigilator_assignments'
                 })
 
@@ -2819,24 +2819,24 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     
     session_classes_map = {}
     for _, tt_row in timetable_df.iterrows():
-        date_shift_key = (str(tt_row['Date']), str(tt_row['Shift']))
+        date_shift_key = (str(tt_row['date']), str(tt_row['shift']))
         if date_shift_key not in session_classes_map:
             session_classes_map[date_shift_key] = set()
         session_classes_map[date_shift_key].add(str(tt_row['Class']).strip())
 
     workers_with_both_shifts = set()
     if not df_assignments.empty:
-        df_assignments['Date_dt'] = pd.to_datetime(df_assignments['Date'], format='%d-%m-%Y', errors='coerce')
-        shift_counts = df_assignments.groupby(['Name', 'Date'])['Shift'].nunique().reset_index()
-        eligible_workers_df = shift_counts[shift_counts['Shift'] == 2]
+        df_assignments['date_dt'] = pd.to_datetime(df_assignments['date'], format='%d-%m-%Y', errors='coerce')
+        shift_counts = df_assignments.groupby(['Name', 'date'])['shift'].nunique().reset_index()
+        eligible_workers_df = shift_counts[shift_counts['shift'] == 2]
         for _, row in eligible_workers_df.iterrows():
-            workers_with_both_shifts.add((row['Name'], row['Date']))
+            workers_with_both_shifts.add((row['Name'], row['date']))
 
     for assignment in unified_assignments:
         name = assignment['Name']
         role_key = assignment['Role_Key']
-        date = assignment['Date']
-        shift = assignment['Shift']
+        date = assignment['date']
+        shift = assignment['shift']
 
         session_classes = list(session_classes_map.get((date, shift), set()))
         is_selected_exam = any(cls in selected_classes_for_bill for cls in [c.strip() for c in session_classes]) if selected_classes_for_bill else True
@@ -2855,9 +2855,9 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             'Name': name,
             'Role_Key': role_key,
             'Role_Display': remuneration_rules[role_key]['role_display'],
-            'Date': date,
-            'Shift': shift,
-            'Base_Remuneration_Per_Shift_Unfiltered': base_rem_for_shift,
+            'date': date,
+            'shift': shift,
+            'Base_Remuneration_Per_shift_Unfiltered': base_rem_for_shift,
             'Conveyance': conveyance,
             'Is_Selected_Exam': is_selected_exam,
             'Classes_in_Session': session_classes,
@@ -2889,32 +2889,32 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             filtered_person_data = person_data.copy()
 
         duty_dates_morning_str = ""
-        morning_shifts_df = filtered_person_data[filtered_person_data['Shift'] == 'Morning']
+        morning_shifts_df = filtered_person_data[filtered_person_data['shift'] == 'Morning']
         if not morning_shifts_df.empty:
-            morning_shifts_df['Date_dt'] = pd.to_datetime(morning_shifts_df['Date'], format='%d-%m-%Y', errors='coerce')
-            morning_shifts_df = morning_shifts_df.sort_values(by='Date_dt')
-            grouped_dates_morning = morning_shifts_df.groupby(morning_shifts_df['Date_dt'].dt.to_period('M'))['Date_dt'].apply(lambda x: sorted(x.dt.day.tolist()))
+            morning_shifts_df['date_dt'] = pd.to_datetime(morning_shifts_df['date'], format='%d-%m-%Y', errors='coerce')
+            morning_shifts_df = morning_shifts_df.sort_values(by='date_dt')
+            grouped_dates_morning = morning_shifts_df.groupby(morning_shifts_df['date_dt'].dt.to_period('M'))['date_dt'].apply(lambda x: sorted(x.dt.day.tolist()))
             date_parts = []
             for period, days in grouped_dates_morning.items():
                 month_name = period.strftime('%b')
                 days_str = ", ".join(map(str, days))
                 date_parts.append(f"{month_name} - {days_str}")
             if date_parts:
-                duty_dates_morning_str = ", ".join(date_parts) + f" {morning_shifts_df['Date_dt'].min().year}"
+                duty_dates_morning_str = ", ".join(date_parts) + f" {morning_shifts_df['date_dt'].min().year}"
 
         duty_dates_evening_str = ""
-        evening_shifts_df = filtered_person_data[filtered_person_data['Shift'] == 'Evening']
+        evening_shifts_df = filtered_person_data[filtered_person_data['shift'] == 'Evening']
         if not evening_shifts_df.empty:
-            evening_shifts_df['Date_dt'] = pd.to_datetime(evening_shifts_df['Date'], format='%d-%m-%Y', errors='coerce')
-            evening_shifts_df = evening_shifts_df.sort_values(by='Date_dt')
-            grouped_dates_evening = evening_shifts_df.groupby(evening_shifts_df['Date_dt'].dt.to_period('M'))['Date_dt'].apply(lambda x: sorted(x.dt.day.tolist()))
+            evening_shifts_df['date_dt'] = pd.to_datetime(evening_shifts_df['date'], format='%d-%m-%Y', errors='coerce')
+            evening_shifts_df = evening_shifts_df.sort_values(by='date_dt')
+            grouped_dates_evening = evening_shifts_df.groupby(evening_shifts_df['date_dt'].dt.to_period('M'))['date_dt'].apply(lambda x: sorted(x.dt.day.tolist()))
             date_parts = []
             for period, days in grouped_dates_evening.items():
                 month_name = period.strftime('%b')
                 days_str = ", ".join(map(str, days))
                 date_parts.append(f"{month_name} - {days_str}")
             if date_parts:
-                duty_dates_evening_str = ", ".join(date_parts) + f" {evening_shifts_df['Date_dt'].min().year}"
+                duty_dates_evening_str = ", ".join(date_parts) + f" {evening_shifts_df['date_dt'].min().year}"
         
         total_morning_shifts = len(morning_shifts_df)
         total_evening_shifts = len(evening_shifts_df)
@@ -2923,10 +2923,10 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
 
         total_base_remuneration = 0
         if role_key == 'senior_center_superintendent':
-            unique_dates = filtered_person_data['Date'].nunique()
+            unique_dates = filtered_person_data['date'].nunique()
             total_base_remuneration = unique_dates * rate_in_rs
         else:
-            total_base_remuneration = filtered_person_data['Base_Remuneration_Per_Shift_Unfiltered'].sum()
+            total_base_remuneration = filtered_person_data['Base_Remuneration_Per_shift_Unfiltered'].sum()
         
         total_conveyance = filtered_person_data['Conveyance'].sum() 
         
@@ -2955,8 +2955,8 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             individual_bills.append({
                 'SN': len(individual_bills) + 1,
                 'Name (with role)': f"{name} ({role_display})",
-                'Duty dates of selected class exam Shift (morning)': duty_dates_morning_str,
-                'Duty dates of selected class exam Shift (evening)': duty_dates_evening_str,
+                'Duty dates of selected class exam shift (morning)': duty_dates_morning_str,
+                'Duty dates of selected class exam shift (evening)': duty_dates_evening_str,
                 'Total shifts of selected class exams (morning/evening)': total_shifts,
                 'Rate in Rs': rate_in_rs,
                 'Total Remuneration in Rs': total_base_remuneration,
@@ -2974,8 +2974,8 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
         total_row = {
             'SN': '',
             'Name (with role)': 'TOTAL',
-            'Duty dates of selected class exam Shift (morning)': '',
-            'Duty dates of selected class exam Shift (evening)': '',
+            'Duty dates of selected class exam shift (morning)': '',
+            'Duty dates of selected class exam shift (evening)': '',
             'Total shifts of selected class exams (morning/evening)': df_individual_bills['Total shifts of selected class exams (morning/evening)'].sum(),
             'Rate in Rs': '',
             'Total Remuneration in Rs': df_individual_bills['Total Remuneration in Rs'].sum(),
@@ -2994,15 +2994,15 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     class_3_4_final_bills = []
     
     # Ensure key columns exist and convert to string for robust merging
-    required_cols_timetable = ['Paper Code', 'Date', 'Shift', 'Class']
-    required_cols_assigned_seats = ['Paper Code', 'Date', 'Shift', 'Roll Number']
+    required_cols_timetable = ['Paper Code', 'date', 'shift', 'Class']
+    required_cols_assigned_seats = ['Paper Code', 'date', 'shift', 'Roll Number']
 
     if all(col in timetable_df.columns for col in required_cols_timetable) and \
        all(col in assigned_seats_df.columns for col in required_cols_assigned_seats):
 
         timetable_df_temp = timetable_df.copy()
         assigned_seats_df_temp = assigned_seats_df.copy()
-        for col in ['Paper Code', 'Date', 'Shift']:
+        for col in ['Paper Code', 'date', 'shift']:
             timetable_df_temp[col] = timetable_df_temp[col].astype(str)
             assigned_seats_df_temp[col] = assigned_seats_df_temp[col].astype(str)
 
@@ -3011,7 +3011,7 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
             filtered_timetable = timetable_df_temp[timetable_df_temp['Class'].isin(selected_classes_for_bill)]
             
             # Merge with assigned seats to get students for only those exams
-            merged_df = pd.merge(assigned_seats_df_temp, filtered_timetable, on=['Paper Code', 'Date', 'Shift'], how='inner')
+            merged_df = pd.merge(assigned_seats_df_temp, filtered_timetable, on=['Paper Code', 'date', 'shift'], how='inner')
             total_students_for_class_workers = merged_df['Roll Number'].nunique()
         else:
             # If no classes are selected, count all unique students
@@ -3164,7 +3164,7 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
 
     for day, data in prep_closing_remuneration_aggregated.items():
         row_data = {
-            'Date & Shift': f"{day} ({data['type']})",
+            'date & shift': f"{day} ({data['type']})",
             'Paper': data['type'],
             'Number of students': total_students_for_class_workers,
             'Conveyance': 0,
@@ -3197,12 +3197,12 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
         row_data['Daily Total'] = int(daily_total_rem)
         summary_data.append(row_data)
 
-    exam_dates_from_df = set(df_detailed_remuneration['Date'].unique())
+    exam_dates_from_df = set(df_detailed_remuneration['date'].unique())
     prep_closing_dates_from_df = set(prep_closing_remuneration_aggregated.keys())
     exam_dates_to_process = sorted(list(exam_dates_from_df - prep_closing_dates_from_df))
 
     for date_str in exam_dates_to_process:
-        date_assignments = df_detailed_remuneration[df_detailed_remuneration['Date'] == date_str]
+        date_assignments = df_detailed_remuneration[df_detailed_remuneration['date'] == date_str]
         
         if selected_classes_for_bill:
             date_assignments = date_assignments[date_assignments['Is_Selected_Exam'] == True]
@@ -3211,12 +3211,12 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
             continue
 
         for shift in ['Morning', 'Evening']:
-            shift_data = date_assignments[date_assignments['Shift'] == shift]
+            shift_data = date_assignments[date_assignments['shift'] == shift]
             
             if shift_data.empty:
                 continue
 
-            session_papers = timetable_df[(timetable_df['Date'] == date_str) & (timetable_df['Shift'] == shift)]
+            session_papers = timetable_df[(timetable_df['date'] == date_str) & (timetable_df['shift'] == shift)]
             paper_list = []
             for _, paper_row in session_papers.iterrows():
                 if not selected_classes_for_bill or paper_row['Class'] in selected_classes_for_bill:
@@ -3238,7 +3238,7 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
             
             for _, person_row in shift_data.iterrows():
                 role_key = person_row['Role_Key']
-                remuneration = person_row['Base_Remuneration_Per_Shift_Unfiltered']
+                remuneration = person_row['Base_Remuneration_Per_shift_Unfiltered']
                 total_conveyance += person_row['Conveyance']
 
                 if role_key == 'permanent_invigilator' or role_key == 'assistant_permanent_invigilator':
@@ -3261,7 +3261,7 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
             daily_total_rem = sum(r['total_rem'] for r in remuneration_summary.values()) + total_conveyance
             
             row_data = {
-                'Date & Shift': f"{date_str} ({shift})",
+                'date & shift': f"{date_str} ({shift})",
                 'Paper': papers_string,
                 'Number of students': students_count,
                 'SCS': f"{remuneration_summary['SCS']['count']} ({int(remuneration_summary['SCS']['total_rem'])})",
@@ -3280,8 +3280,8 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
         return pd.DataFrame()
 
     # CORRECTED LINE: Using regex to extract date and handling errors
-    df_summary['Date_sort'] = pd.to_datetime(df_summary['Date & Shift'].str.extract(r'(\d{2}-\d{2}-\d{4})')[0], format='%d-%m-%Y', errors='coerce')
-    df_summary = df_summary.sort_values('Date_sort').drop(columns='Date_sort').reset_index(drop=True)
+    df_summary['date_sort'] = pd.to_datetime(df_summary['date & shift'].str.extract(r'(\d{2}-\d{2}-\d{4})')[0], format='%d-%m-%Y', errors='coerce')
+    df_summary = df_summary.sort_values('date_sort').drop(columns='date_sort').reset_index(drop=True)
 
     total_students = df_summary['Number of students'].sum()
     total_conveyance = df_summary['Conveyance'].sum()
@@ -3301,7 +3301,7 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
                     pass
 
     total_row = {
-        'Date & Shift': 'Total',
+        'date & shift': 'Total',
         'Paper': '',
         'Number of students': total_students,
         'SCS': f"{role_totals['SCS']['count']} ({int(role_totals['SCS']['rem'])})",
@@ -3315,7 +3315,7 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
 
     df_summary = pd.concat([df_summary, pd.DataFrame([total_row])], ignore_index=True)
 
-    final_cols = ['Date & Shift', 'Paper', 'Number of students', 'SCS', 'CS', 'ACS', 'PI/API', 'Invigilators', 'Conveyance', 'Daily Total']
+    final_cols = ['date & shift', 'Paper', 'Number of students', 'SCS', 'CS', 'ACS', 'PI/API', 'Invigilators', 'Conveyance', 'Daily Total']
     return df_summary[final_cols]
 def add_total_row(df):
     """Add a total row to the dataframe"""
@@ -3326,8 +3326,8 @@ def add_total_row(df):
     for col in df.columns:
         if col in ['SN', 'S.N.']:
             total_row[col] = 'TOTAL'
-        elif col in ['Name (with role)', 'Name', 'Role', 'Duty dates', 'Shift (morning/evening)', 'Signature', 'Signature of Receiver',
-                      'Duty dates of selected class exam Shift (morning)', 'Duty dates of selected class exam Shift (evening)', 'Date & Shift']:
+        elif col in ['Name (with role)', 'Name', 'Role', 'Duty dates', 'shift (morning/evening)', 'Signature', 'Signature of Receiver',
+                      'Duty dates of selected class exam shift (morning)', 'Duty dates of selected class exam shift (evening)', 'date & shift']:
             total_row[col] = ''
         elif df[col].dtype in ['int64', 'float64']:
             total_row[col] = df[col].sum()
@@ -3409,14 +3409,14 @@ if menu == "Student View":
         st.warning("Sitting plan or timetable data not found. Please upload them via the Admin Panel for full functionality.")
     
     option = st.radio("Choose Search Option:", [
-        "Search by Roll Number and Date",
+        "Search by Roll Number and date",
         "Get Full Exam Schedule by Roll Number",
         "View Full Timetable"
     ])
 
-    if option == "Search by Roll Number and Date":
+    if option == "Search by Roll Number and date":
         roll = st.text_input("Enter Roll Number", max_chars=9)
-        date_input = st.date_input("Enter Exam Date", value=datetime.date.today())
+        date_input = st.date_input("Enter Exam date", value=datetime.date.today())
         if st.button("Search"):
             if sitting_plan.empty or timetable.empty:
                 st.warning("Sitting plan or timetable data is missing. Please upload them via the Admin Panel to search.")
@@ -3432,7 +3432,7 @@ if menu == "Student View":
                         st.write(f"**📚 Paper:** {result['Paper']} - {result['Paper Name']} - ({result['Paper Code']})")
                         st.write(f"**🏫 Class:** {result['Class']}")
                         st.write(f"**🎓 Student type:** {result['Mode']} - {result['Type']}")
-                        st.write(f"**🕐 Shift:** {result['Shift']}, **📅 Date:** {result['Date']}")
+                        st.write(f"**🕐 shift:** {result['shift']}, **📅 date:** {result['date']}")
                 else:
                     st.warning("No data found for the given inputs.")
 
@@ -3444,8 +3444,8 @@ if menu == "Student View":
             else:
                 schedule = pd.DataFrame(get_all_exams(roll, sitting_plan, timetable))
                 if not schedule.empty:
-                    schedule['Date_dt'] = pd.to_datetime(schedule['Date'], format='%d-%m-%Y', errors='coerce')
-                    schedule = schedule.sort_values(by="Date_dt").drop(columns=['Date_dt'])
+                    schedule['date_dt'] = pd.to_datetime(schedule['date'], format='%d-%m-%Y', errors='coerce')
+                    schedule = schedule.sort_values(by="date_dt").drop(columns=['date_dt'])
                     st.write(schedule)
                 else:
                     st.warning("No exam records found for this roll number.")
@@ -3497,8 +3497,8 @@ elif menu == "Admin Panel":
 
         # Admin Panel Options
         admin_option = st.radio("Select Admin Task:", [
-            "Get All Students for Date & Shift (Room Wise)",
-            "Get All Students for Date & Shift (Roll Number Wise)",
+            "Get All Students for date & shift (Room Wise)",
+            "Get All Students for date & shift (Roll Number Wise)",
             "Update Timetable Details",
             "Assign Rooms & Seats to Students",
             "Room Occupancy Report",
@@ -3515,14 +3515,14 @@ elif menu == "Admin Panel":
             if st.button("Download Attestation Data"):
                 download_attestation_data_to_parent_folder()
         
-        elif admin_option == "Get All Students for Date & Shift (Room Wise)":
-            st.subheader("List All Students for a Date and Shift (Room Wise)")
+        elif admin_option == "Get All Students for date & shift (Room Wise)":
+            st.subheader("List All Students for a date and shift (Room Wise)")
             if assigned_seats_df.empty or timetable.empty: # Changed from sitting_plan to assigned_seats_df
                 st.info("Please ensure seats are assigned and 'timetable.csv' is uploaded to use this feature.")
             else:
-                list_date_input = st.date_input("Select Date", value=datetime.date.today())
+                list_date_input = st.date_input("Select date", value=datetime.date.today())
                 list_shift_options = ["Morning", "Evening"]
-                list_shift = st.selectbox("Select Shift", list_shift_options)
+                list_shift = st.selectbox("Select shift", list_shift_options)
                 
                 if st.button("Get Student List (Room Wise)"):
                     formatted_student_list_text, error_message, excel_data_for_students_list = get_all_students_for_date_shift_formatted(
@@ -3532,7 +3532,7 @@ elif menu == "Admin Panel":
                         timetable
                     )
                     if formatted_student_list_text:
-                        st.success(f"Generated list for {list_date_input.strftime('%d-%m-%Y')} ({list_shift} Shift):")
+                        st.success(f"Generated list for {list_date_input.strftime('%d-%m-%Y')} ({list_shift} shift):")
                         st.text_area("Student List (Text Format)", formatted_student_list_text, height=500)
                         
                         # Download button for TXT
@@ -3588,14 +3588,14 @@ elif menu == "Admin Panel":
                     else:
                         st.warning(f"No students found: {error_message}")
 
-        elif admin_option == "Get All Students for Date & Shift (Roll Number Wise)":
-            st.subheader("List All Students for a Date and Shift (Roll Number Wise)")
+        elif admin_option == "Get All Students for date & shift (Roll Number Wise)":
+            st.subheader("List All Students for a date and shift (Roll Number Wise)")
             if assigned_seats_df.empty or timetable.empty: # Changed from sitting_plan to assigned_seats_df
                 st.info("Please ensure seats are assigned and 'timetable.csv' is uploaded to use this feature.")
             else:
-                list_date_input = st.date_input("Select Date", value=datetime.date.today(), key="roll_num_wise_date")
+                list_date_input = st.date_input("Select date", value=datetime.date.today(), key="roll_num_wise_date")
                 list_shift_options = ["Morning", "Evening"]
-                list_shift = st.selectbox("Select Shift", list_shift_options, key="roll_num_wise_shift")
+                list_shift = st.selectbox("Select shift", list_shift_options, key="roll_num_wise_shift")
                 
                 if st.button("Get Student List (Roll Number Wise)"):
                     formatted_student_list_text, error_message, excel_data_for_students_list = get_all_students_roll_number_wise_formatted(
@@ -3605,7 +3605,7 @@ elif menu == "Admin Panel":
                         timetable
                     )
                     if formatted_student_list_text:
-                        st.success(f"Generated list for {list_date_input.strftime('%d-%m-%Y')} ({list_shift} Shift):")
+                        st.success(f"Generated list for {list_date_input.strftime('%d-%m-%Y')} ({list_shift} shift):")
                         st.text_area("Student List (Text Format)", formatted_student_list_text, height=500)
                         
                         # Download button for TXT
@@ -3673,15 +3673,15 @@ elif menu == "Admin Panel":
                 st.write("Select filters to specify which entries to update:")
                 
                 # Filters for selecting entries to update
-                unique_dates_tt = sorted(timetable['Date'].astype(str).unique().tolist())
-                unique_shifts_tt = sorted(timetable['Shift'].astype(str).unique().tolist())
+                unique_dates_tt = sorted(timetable['date'].astype(str).unique().tolist())
+                unique_shifts_tt = sorted(timetable['shift'].astype(str).unique().tolist())
                 unique_classes_tt = sorted(timetable['Class'].astype(str).unique().tolist())
                 unique_paper_codes_tt = sorted(timetable['Paper Code'].astype(str).unique().tolist())
                 unique_paper_tt = sorted(timetable['Paper'].astype(str).unique().tolist())
                 unique_paper_names_tt = sorted(timetable['Paper Name'].astype(str).unique().tolist())
 
-                filter_date_tt_update = st.selectbox("Filter by Date", ["All"] + unique_dates_tt, key="filter_date_tt_update")
-                filter_shift_tt_update = st.selectbox("Filter by Shift", ["All"] + unique_shifts_tt, key="filter_shift_tt_update")
+                filter_date_tt_update = st.selectbox("Filter by date", ["All"] + unique_dates_tt, key="filter_date_tt_update")
+                filter_shift_tt_update = st.selectbox("Filter by shift", ["All"] + unique_shifts_tt, key="filter_shift_tt_update")
                 filter_class_tt_update = st.selectbox("Filter by Class", ["All"] + unique_classes_tt, key="filter_class_tt_update")
                 filter_paper_code_tt_update = st.selectbox("Filter by Paper Code", ["All"] + unique_paper_codes_tt, key="filter_paper_code_tt_update")
                 filter_paper_tt_update = st.selectbox("Filter by Paper", ["All"] + unique_paper_tt, key="filter_paper_tt_update")
@@ -3692,9 +3692,9 @@ elif menu == "Admin Panel":
                 
                 temp_filtered_tt = timetable.copy()
                 if filter_date_tt_update != "All":
-                    temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['Date'].astype(str) == filter_date_tt_update]
+                    temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['date'].astype(str) == filter_date_tt_update]
                 if filter_shift_tt_update != "All":
-                    temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['Shift'].astype(str) == filter_shift_tt_update]
+                    temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['shift'].astype(str) == filter_shift_tt_update]
                 if filter_class_tt_update != "All":
                     temp_filtered_tt = temp_filtered_tt[temp_filtered_tt['Class'].astype(str) == filter_class_tt_update]
                 if filter_paper_code_tt_update != "All":
@@ -3710,27 +3710,27 @@ elif menu == "Admin Panel":
                     st.dataframe(temp_filtered_tt)
 
                 st.markdown("---")
-                st.write("Enter new values for 'Date', 'Shift', and 'Time' for the filtered entries:")
+                st.write("Enter new values for 'date', 'shift', and 'Time' for the filtered entries:")
                 
                 # Provide default values from the first row of the *filtered* timetable if available, otherwise from the full timetable or current date/time
                 default_date_update_input = datetime.date.today()
-                if not temp_filtered_tt.empty and 'Date' in temp_filtered_tt.columns and pd.notna(temp_filtered_tt['Date'].iloc[0]):
+                if not temp_filtered_tt.empty and 'date' in temp_filtered_tt.columns and pd.notna(temp_filtered_tt['date'].iloc[0]):
                     try:
-                        default_date_update_input = datetime.datetime.strptime(str(temp_filtered_tt['Date'].iloc[0]).strip(), '%d-%m-%Y').date()
+                        default_date_update_input = datetime.datetime.strptime(str(temp_filtered_tt['date'].iloc[0]).strip(), '%d-%m-%Y').date()
                     except ValueError:
                         pass
-                elif 'Date' in timetable.columns and not timetable['Date'].empty and pd.notna(timetable['Date'].iloc[0]):
+                elif 'date' in timetable.columns and not timetable['date'].empty and pd.notna(timetable['date'].iloc[0]):
                     try:
-                        default_date_update_input = datetime.datetime.strptime(str(timetable['Date'].iloc[0]).strip(), '%d-%m-%Y').date()
+                        default_date_update_input = datetime.datetime.strptime(str(timetable['date'].iloc[0]).strip(), '%d-%m-%Y').date()
                     except ValueError:
                         pass
 
 
                 default_shift_update_input = "Morning"
-                if not temp_filtered_tt.empty and 'Shift' in temp_filtered_tt.columns and pd.notna(temp_filtered_tt['Shift'].iloc[0]):
-                    default_shift_update_input = str(temp_filtered_tt['Shift'].iloc[0]).strip()
-                elif 'Shift' in timetable.columns and not timetable['Shift'].empty and pd.notna(timetable['Shift'].iloc[0]):
-                    default_shift_update_input = str(timetable['Shift'].iloc[0]).strip()
+                if not temp_filtered_tt.empty and 'shift' in temp_filtered_tt.columns and pd.notna(temp_filtered_tt['shift'].iloc[0]):
+                    default_shift_update_input = str(temp_filtered_tt['shift'].iloc[0]).strip()
+                elif 'shift' in timetable.columns and not timetable['shift'].empty and pd.notna(timetable['shift'].iloc[0]):
+                    default_shift_update_input = str(timetable['shift'].iloc[0]).strip()
 
 
                 default_time_update_input = "09:00 AM - 12:00 PM"
@@ -3740,8 +3740,8 @@ elif menu == "Admin Panel":
                     default_time_update_input = str(timetable['Time'].iloc[0]).strip()
 
 
-                update_date = st.date_input("New Date", value=default_date_update_input, key="update_tt_date")
-                update_shift = st.selectbox("New Shift", ["Morning", "Evening"], index=["Morning", "Evening"].index(default_shift_update_input) if default_shift_update_input in ["Morning", "Evening"] else 0, key="update_tt_shift")
+                update_date = st.date_input("New date", value=default_date_update_input, key="update_tt_date")
+                update_shift = st.selectbox("New shift", ["Morning", "Evening"], index=["Morning", "Evening"].index(default_shift_update_input) if default_shift_update_input in ["Morning", "Evening"] else 0, key="update_tt_shift")
                 update_time = st.text_input("New Time (e.g., 09:00 AM - 12:00 PM)", value=default_time_update_input, key="update_tt_time")
 
                 if st.button("Apply Updates and Save Timetable"):
@@ -3752,8 +3752,8 @@ elif menu == "Admin Panel":
                         
                         # Identify indices to update in the original DataFrame
                         indices_to_update = timetable_modified[
-                            (timetable_modified['Date'].astype(str) == filter_date_tt_update if filter_date_tt_update != "All" else True) &
-                            (timetable_modified['Shift'].astype(str) == filter_shift_tt_update if filter_shift_tt_update != "All" else True) &
+                            (timetable_modified['date'].astype(str) == filter_date_tt_update if filter_date_tt_update != "All" else True) &
+                            (timetable_modified['shift'].astype(str) == filter_shift_tt_update if filter_shift_tt_update != "All" else True) &
                             (timetable_modified['Class'].astype(str) == filter_class_tt_update if filter_class_tt_update != "All" else True) &
                             (timetable_modified['Paper Code'].astype(str) == filter_paper_code_tt_update if filter_paper_code_tt_update != "All" else True) &                           (timetable_modified['Paper'].astype(str) == filter_paper_tt_update if filter_paper_tt_update != "All" else True) &
                             (timetable_modified['Paper Name'].astype(str) == filter_paper_name_tt_update if filter_paper_name_tt_update != "All" else True)
@@ -3761,8 +3761,8 @@ elif menu == "Admin Panel":
 
                         # Apply updates only to the identified rows
                         if not indices_to_update.empty:
-                            timetable_modified.loc[indices_to_update, 'Date'] = update_date.strftime('%d-%m-%Y')
-                            timetable_modified.loc[indices_to_update, 'Shift'] = update_shift
+                            timetable_modified.loc[indices_to_update, 'date'] = update_date.strftime('%d-%m-%Y')
+                            timetable_modified.loc[indices_to_update, 'shift'] = update_shift
                             timetable_modified.loc[indices_to_update, 'Time'] = update_time
 
                             success, msg = save_uploaded_file(timetable_modified, TIMETABLE_FILE)
@@ -3798,14 +3798,14 @@ elif menu == "Admin Panel":
             # --- Input Widgets ---
             st.subheader("Exam Details")
             # Ensure date and shift options are available from timetable
-            date_options = sorted(timetable["Date"].dropna().unique())
-            shift_options = sorted(timetable["Shift"].dropna().unique())
+            date_options = sorted(timetable["date"].dropna().unique())
+            shift_options = sorted(timetable["shift"].dropna().unique())
 
             if not date_options or not shift_options:
-                st.warning("Timetable is empty or missing Date/Shift information. Please upload a complete timetable.")
+                st.warning("Timetable is empty or missing date/shift information. Please upload a complete timetable.")
             else:
-                date = st.selectbox("Select Exam Date", date_options, key="assign_date_select")
-                shift = st.selectbox("Select Shift", shift_options, key="assign_shift_select")
+                date = st.selectbox("Select Exam date", date_options, key="assign_date_select")
+                shift = st.selectbox("Select shift", shift_options, key="assign_shift_select")
 
                 # --- NEW: Paper-wise summary chart for the selected session ---
                 st.markdown("---")
@@ -3820,7 +3820,7 @@ elif menu == "Admin Panel":
                 # --- END NEW ---
 
                 # Filter relevant papers based on selected date and shift
-                filtered_papers = timetable[(timetable["Date"] == date) & (timetable["Shift"] == shift)]
+                filtered_papers = timetable[(timetable["date"] == date) & (timetable["shift"] == shift)]
                 # Ensure paper codes are formatted for display
                 paper_options = filtered_papers[["Paper Code", "Paper Name"]].drop_duplicates().values.tolist()
                 paper_display = [f"{_format_paper_code(code)} - {name}" for code, name in paper_options]
@@ -3850,8 +3850,8 @@ elif menu == "Admin Panel":
                         # Get all assigned seats for the current room, date, and shift
                         room_assigned_seats_current = assigned_seats_df[
                             (assigned_seats_df["Room Number"] == room) &
-                            (assigned_seats_df["Date"] == date) &
-                            (assigned_seats_df["Shift"] == shift)
+                            (assigned_seats_df["date"] == date) &
+                            (assigned_seats_df["shift"] == shift)
                         ]["Seat Number"].tolist()
 
                         # Calculate used seats for A, B, and no-suffix formats
@@ -3894,8 +3894,8 @@ elif menu == "Admin Panel":
                         # Remove previously assigned roll numbers for this paper/date/shift
                         already_assigned_rolls = assigned_seats_df[
                             (assigned_seats_df["Paper Code"].astype(str) == paper_code) & # Use formatted paper code
-                            (assigned_seats_df["Date"] == date) &
-                            (assigned_seats_df["Shift"] == shift)
+                            (assigned_seats_df["date"] == date) &
+                            (assigned_seats_df["shift"] == shift)
                         ]["Roll Number"].astype(str).tolist()
 
                         unassigned_rolls = [r for r in all_rolls if r not in already_assigned_rolls]
@@ -3923,9 +3923,9 @@ elif menu == "Admin Panel":
                             (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
                             for x in assigned_seats_df[
                                 (assigned_seats_df["Room Number"] == room) &
-                                (assigned_seats_df["Date"] == date) &
-                                (assigned_seats_df["Shift"] == shift)
-                            ][['Room Number', 'Seat Number', 'Date', 'Shift']].values
+                                (assigned_seats_df["date"] == date) &
+                                (assigned_seats_df["shift"] == shift)
+                            ][['Room Number', 'Seat Number', 'date', 'shift']].values
                         )
 
                         # Find truly available seat numbers for the selected format.
@@ -3934,7 +3934,7 @@ elif menu == "Admin Panel":
                             prospective_seat_string = f"{i}{suffix}"
                             prospective_seat_key = (str(room), prospective_seat_string, str(date), str(shift)) # Ensure consistency
 
-                            # A seat is available if its specific key (Room, Seat String, Date, Shift) is NOT already taken
+                            # A seat is available if its specific key (Room, Seat String, date, shift) is NOT already taken
                             if prospective_seat_key not in occupied_physical_seat_keys:
                                 available_seat_numbers.append(i)
 
@@ -3970,8 +3970,8 @@ elif menu == "Admin Panel":
                                     "Paper Name": paper_name,
                                     "Room Number": room,
                                     "Seat Number": seat_num_str,
-                                    "Date": date,
-                                    "Shift": shift
+                                    "date": date,
+                                    "shift": shift
                                 })
                                 # Add this new assignment's physical seat key to our occupied set for this batch
                                 occupied_physical_seat_keys.add(current_assignment_key) # Update the set for subsequent assignments in this batch
@@ -3984,9 +3984,9 @@ elif menu == "Admin Panel":
                         else:
                             # Merge new assignments with existing ones and save
                             assigned_seats_df = pd.concat([assigned_seats_df, new_assignments_df], ignore_index=True)
-                            # Re-add drop_duplicates on Roll Number/Paper Code/Date/Shift to prevent a student
+                            # Re-add drop_duplicates on Roll Number/Paper Code/date/shift to prevent a student
                             # from being assigned the *same paper* multiple times if the button is clicked repeatedly.
-                            assigned_seats_df.drop_duplicates(subset=["Roll Number", "Paper Code", "Date", "Shift"], inplace=True)
+                            assigned_seats_df.drop_duplicates(subset=["Roll Number", "Paper Code", "date", "shift"], inplace=True)
                             
                             success, msg = save_uploaded_file(assigned_seats_df, ASSIGNED_SEATS_FILE)
                             if success:
@@ -3999,8 +3999,8 @@ elif menu == "Admin Panel":
                             st.subheader("📊 Updated Room Status")
                             updated_room_assigned_seats = assigned_seats_df[
                                 (assigned_seats_df["Room Number"] == room) &
-                                (assigned_seats_df["Date"] == date) &
-                                (assigned_seats_df["Shift"] == shift)
+                                (assigned_seats_df["date"] == date) &
+                                (assigned_seats_df["shift"] == shift)
                             ]["Seat Number"].tolist()
 
                             updated_a_seats_used = len([s for s in updated_room_assigned_seats if s.endswith("A")])
@@ -4029,8 +4029,8 @@ elif menu == "Admin Panel":
                         with st.expander(f"📄 View all current assignments for Room {room} on {date} ({shift})"):
                             room_assignments_display = assigned_seats_df[
                                 (assigned_seats_df["Room Number"] == room) &
-                                (assigned_seats_df["Date"] == date) &
-                                (assigned_seats_df["Shift"] == shift)
+                                (assigned_seats_df["date"] == date) &
+                                (assigned_seats_df["shift"] == shift)
                             ].copy() # Use .copy() to avoid SettingWithCopyWarning
 
                             if room_assignments_display.empty:
@@ -4197,7 +4197,7 @@ elif menu == "Admin Panel":
                 'permanent_invigilator_rate': st.number_input("Permanent Invigilator Rate (Rs.)", min_value=0, value=100, key="pi_rate"),
                 'assistant_permanent_invigilator_rate': st.number_input("Assistant Permanent Invigilator Rate (Rs.)", min_value=0, value=100, key="api_rate"),
                 'invigilator_rate': st.number_input("Invigilator Rate (Rs.)", min_value=0, value=100, key="inv_rate"),
-                'conveyance_rate': st.number_input("Conveyance Rate (Evening Shift - both shifts worked) (Rs.)", min_value=0, value=100, key="conveyance_rate"),
+                'conveyance_rate': st.number_input("Conveyance Rate (Evening shift - both shifts worked) (Rs.)", min_value=0, value=100, key="conveyance_rate"),
                 'class_3_worker_rate_per_student': st.number_input("Class 3 Worker Rate (per student) (Rs.)", min_value=0.0, value=4.0, key="c3_rate"),
                 'class_4_worker_rate_per_student': st.number_input("Class 4 Worker Rate (per student) (Rs.)", min_value=0.0, value=3.0, key="c4_rate"),
                 'holiday_conveyance_allowance_rate': st.number_input("Holiday Conveyance Allowance (Rs.)", min_value=0, value=100, key="holiday_conveyance_rate")
@@ -4332,7 +4332,7 @@ elif menu == "Admin Panel":
 
 
             st.markdown("---")
-            st.subheader("Holiday Dates for Conveyance Allowance")
+            st.subheader("Holiday dates for Conveyance Allowance")
             st.info("Holiday conveyance allowance (Rs. 100) will be given for preparation/closing days that fall on holidays.")
             
             # Load holiday dates from Supabase for initial value
@@ -4341,7 +4341,7 @@ elif menu == "Admin Panel":
                 st.session_state.holiday_dates_input_state = ", ".join(loaded_holiday_dates)
 
             holiday_dates_input = st.text_input(
-                "Enter Holiday Dates (comma-separated DD-MM-YYYY dates)",
+                "Enter Holiday dates (comma-separated DD-MM-YYYY dates)",
                 value=st.session_state.holiday_dates_input_state,
                 key="holiday_dates_input"
             )
@@ -4358,8 +4358,8 @@ elif menu == "Admin Panel":
                     st.warning(f"Invalid date format for {d} in holiday dates. Please use DD-MM-YYYY.")
             holiday_dates = valid_holiday_dates
 
-            # New: Save Holiday Dates button
-            if st.button("💾 Save Holiday Dates"):
+            # New: Save Holiday dates button
+            if st.button("💾 Save Holiday dates"):
                 success, message = save_global_setting_to_supabase('holiday_dates', holiday_dates)
                 if success:
                     st.success(message)
@@ -4383,7 +4383,7 @@ elif menu == "Admin Panel":
 
             if st.button("Generate Remuneration Bills"):
                 if shift_assignments_df.empty:
-                    st.warning("Shift assignments data is required to calculate remuneration.")
+                    st.warning("shift assignments data is required to calculate remuneration.")
                 elif assigned_seats_df_for_remuneration.empty:
                     st.warning("Assigned seats data is required to calculate remuneration for Class 3/4 workers.")
                 else:
@@ -4463,16 +4463,16 @@ elif menu == "Admin Panel":
                 st.warning("Please upload 'sitting_plan.csv', 'timetable.csv', and ensure seats are assigned via 'Assign Rooms & Seats to Students' (Admin Panel) to generate this report.")
                 st.stop() # Use st.stop() to halt execution if critical data is missing
             
-            # Date and Shift filters for the room chart
-            chart_date_options = sorted(timetable["Date"].dropna().unique())
-            chart_shift_options = sorted(timetable["Shift"].dropna().unique())
+            # date and shift filters for the room chart
+            chart_date_options = sorted(timetable["date"].dropna().unique())
+            chart_shift_options = sorted(timetable["shift"].dropna().unique())
 
             if not chart_date_options or not chart_shift_options:
                 st.info("No exam dates or shifts found in the timetable to generate a room chart.")
                 st.stop() # Use st.stop() to halt execution if no options
 
-            selected_chart_date = st.selectbox("Select Date", chart_date_options, key="room_chart_date")
-            selected_chart_shift = st.selectbox("Select Shift", chart_shift_options, key="room_chart_shift")
+            selected_chart_date = st.selectbox("Select date", chart_date_options, key="room_chart_date")
+            selected_chart_shift = st.selectbox("Select shift", chart_shift_options, key="room_chart_shift")
 
             if st.button("Generate Room Chart"):
                 with st.spinner("Generating room chart..."):
@@ -4575,9 +4575,9 @@ elif menu == "Centre Superintendent Panel":
         # Load data for CS panel
         sitting_plan, timetable, assigned_seats_df, attestation_df = load_data() # Load assigned_seats_df here
         
-        cs_panel_option = st.radio("Select CS Task:", ["Report Exam Session", "Manage Exam Team & Shift Assignments", "View Full Timetable", "Room Chart Report", "Generate UFM Print Form"])
+        cs_panel_option = st.radio("Select CS Task:", ["Report Exam Session", "Manage Exam Team & shift Assignments", "View Full Timetable", "Room Chart Report", "Generate UFM Print Form"])
 
-        if cs_panel_option == "Manage Exam Team & Shift Assignments":
+        if cs_panel_option == "Manage Exam Team & shift Assignments":
             st.subheader("👥 Manage Exam Team Members")
             
             current_members = load_exam_team_members()
@@ -4616,10 +4616,10 @@ elif menu == "Centre Superintendent Panel":
                 st.info("No team members added yet.")
 
             st.markdown("---")
-            st.subheader("🗓️ Assign Roles for Exam Shift")
+            st.subheader("🗓️ Assign Roles for Exam shift")
 
-            assignment_date = st.date_input("Select Date for Assignment", value=datetime.date.today(), key="assignment_date")
-            assignment_shift = st.selectbox("Select Shift for Assignment", ["Morning", "Evening"], key="assignment_shift")
+            assignment_date = st.date_input("Select date for Assignment", value=datetime.date.today(), key="assignment_date")
+            assignment_shift = st.selectbox("Select shift for Assignment", ["Morning", "Evening"], key="assignment_shift")
 
             all_team_members = load_exam_team_members()
             if not all_team_members:
@@ -4627,8 +4627,8 @@ elif menu == "Centre Superintendent Panel":
             else:
                 current_assignments_df = load_shift_assignments()
                 current_assignment_for_shift = current_assignments_df[
-                    (current_assignments_df['Date'] == assignment_date.strftime('%d-%m-%Y')) &
-                    (current_assignments_df['Shift'] == assignment_shift)
+                    (current_assignments_df['date'] == assignment_date.strftime('%d-%m-%Y')) &
+                    (current_assignments_df['shift'] == assignment_shift)
                 ]
                 
                 loaded_senior_cs = []
@@ -4659,7 +4659,7 @@ elif menu == "Centre Superintendent Panel":
                 selected_class_4 = st.multiselect("Class 4 Worker (Max 10)", all_team_members, default=loaded_class_4, max_selections=10)
 
 
-                if st.button("Save Shift Assignments"):
+                if st.button("Save shift Assignments"):
                     all_selected_members = (
                         selected_senior_cs + selected_cs + selected_assist_cs +
                         selected_perm_inv + selected_assist_perm_inv + selected_class_3 + selected_class_4
@@ -4684,7 +4684,7 @@ elif menu == "Centre Superintendent Panel":
                             st.error(msg)
                 
                 st.markdown("---")
-                st.subheader("Current Shift Assignments")
+                st.subheader("Current shift Assignments")
                 display_assignments_df = load_shift_assignments()
                 if not display_assignments_df.empty:
                     st.dataframe(display_assignments_df)
@@ -4697,13 +4697,13 @@ elif menu == "Centre Superintendent Panel":
             if assigned_seats_df.empty: # Check assigned_seats_df instead of sitting_plan/timetable for rooms
                 st.info("Please assign seats to students via the Admin Panel's 'Assign Rooms & Seats to Students' section first to see available rooms for invigilator assignment.")
             else:
-                room_inv_date = st.date_input("Select Date for Room Invigilators", value=datetime.date.today(), key="room_inv_date")
-                room_inv_shift = st.selectbox("Select Shift for Room Invigilators", ["Morning", "Evening"], key="room_inv_shift")
+                room_inv_date = st.date_input("Select date for Room Invigilators", value=datetime.date.today(), key="room_inv_date")
+                room_inv_shift = st.selectbox("Select shift for Room Invigilators", ["Morning", "Evening"], key="room_inv_shift")
                 
                 # MODIFIED: Get unique rooms for the selected date and shift from assigned_seats_df
                 relevant_rooms_assigned = assigned_seats_df[
-                    (assigned_seats_df["Date"].astype(str).str.strip() == room_inv_date.strftime('%d-%m-%Y')) &
-                    (assigned_seats_df["Shift"].astype(str).str.strip().str.lower() == room_inv_shift.lower())
+                    (assigned_seats_df["date"].astype(str).str.strip() == room_inv_date.strftime('%d-%m-%Y')) &
+                    (assigned_seats_df["shift"].astype(str).str.strip().str.lower() == room_inv_shift.lower())
                 ]
                 
                 unique_relevant_rooms = sorted(list(relevant_rooms_assigned['Room Number'].dropna().astype(str).str.strip().unique()))
@@ -4761,14 +4761,14 @@ elif menu == "Centre Superintendent Panel":
             if assigned_seats_df.empty or timetable.empty: # Check assigned_seats_df instead of sitting_plan
                 st.info("Please ensure seats are assigned and 'timetable.csv' is uploaded via the Admin Panel to report exam sessions.")
             else:
-                # Date and Shift selection
-                report_date = st.date_input("Select Date", value=datetime.date.today(), key="cs_report_date")
-                report_shift = st.selectbox("Select Shift", ["Morning", "Evening"], key="cs_report_shift")
+                # date and shift selection
+                report_date = st.date_input("Select date", value=datetime.date.today(), key="cs_report_date")
+                report_shift = st.selectbox("Select shift", ["Morning", "Evening"], key="cs_report_shift")
 
                 # Filter assigned_seats_df for selected date and shift to get available exam sessions
                 available_sessions_assigned = assigned_seats_df[
-                    (assigned_seats_df["Date"].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
-                    (assigned_seats_df["Shift"].astype(str).str.strip().str.lower() == report_shift.lower())
+                    (assigned_seats_df["date"].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
+                    (assigned_seats_df["shift"].astype(str).str.strip().str.lower() == report_shift.lower())
                 ].copy()
 
                 if available_sessions_assigned.empty:
@@ -4828,8 +4828,8 @@ elif menu == "Centre Superintendent Panel":
                                 (assigned_seats_df['Room Number'].astype(str).str.strip() == selected_room_num) &
                                 (assigned_seats_df['Paper Code'].astype(str).str.strip() == selected_paper_code) & # Use formatted paper code
                                 (assigned_seats_df['Paper Name'].astype(str).str.strip() == selected_paper_name) &
-                                (assigned_seats_df['Date'].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
-                                (assigned_seats_df['Shift'].astype(str).str.strip().str.lower() == report_shift.lower())
+                                (assigned_seats_df['date'].astype(str).str.strip() == report_date.strftime('%d-%m-%Y')) &
+                                (assigned_seats_df['shift'].astype(str).str.strip().str.lower() == report_shift.lower())
                             ]['Roll Number'].astype(str).tolist()
                             
                             expected_students_for_session = sorted(list(set(expected_students_for_session))) # Remove duplicates and sort
@@ -4935,7 +4935,7 @@ elif menu == "Centre Superintendent Panel":
 
                                     # Map internal keys to display keys
                                     df_all_reports_display = all_reports_df_display.rename(columns={
-                                        'date': 'Date', 'shift': 'Shift', 'room_num': 'Room',
+                                        'date': 'date', 'shift': 'shift', 'room_num': 'Room',
                                         'paper_code': 'Paper Code', 'paper_name': 'Paper Name', 'class': 'Class', 
                                         'invigilators': 'Invigilators',
                                         'absent_roll_numbers': 'Absent Roll Numbers',
@@ -4949,7 +4949,7 @@ elif menu == "Centre Superintendent Panel":
                                             df_all_reports_display[col] = ""
                                     
                                     st.dataframe(df_all_reports_display[
-                                        ['Date', 'Shift', 'Room', 'Paper Code', 'Paper Name', 'Class', 
+                                        ['date', 'shift', 'Room', 'Paper Code', 'Paper Name', 'Class', 
                                             'Invigilators', 'Absent Roll Numbers', 'UFM Roll Numbers', 'Report Key']
                                     ])
                                 else:
@@ -4983,8 +4983,8 @@ elif menu == "Centre Superintendent Panel":
             unique_report_dates = sorted(reports_with_ufm['date'].unique())
             unique_report_shifts = sorted(reports_with_ufm['shift'].unique())
 
-            selected_ufm_report_date = st.selectbox("Select Date of UFM Report", unique_report_dates, key="ufm_report_date_select")
-            selected_ufm_report_shift = st.selectbox("Select Shift of UFM Report", unique_report_shifts, key="ufm_report_shift_select")
+            selected_ufm_report_date = st.selectbox("Select date of UFM Report", unique_report_dates, key="ufm_report_date_select")
+            selected_ufm_report_shift = st.selectbox("Select shift of UFM Report", unique_report_shifts, key="ufm_report_shift_select")
 
             # Filter reports for the selected date and shift
             filtered_ufm_reports = reports_with_ufm[
@@ -5088,16 +5088,16 @@ elif menu == "Centre Superintendent Panel":
                 st.warning("Please upload 'sitting_plan.csv', 'timetable.csv', and ensure seats are assigned via 'Assign Rooms & Seats to Students' (Admin Panel) to generate this report.")
                 st.stop() # Use st.stop() to halt execution if critical data is missing
             
-            # Date and Shift filters for the room chart
-            chart_date_options = sorted(timetable["Date"].dropna().unique())
-            chart_shift_options = sorted(timetable["Shift"].dropna().unique())
+            # date and shift filters for the room chart
+            chart_date_options = sorted(timetable["date"].dropna().unique())
+            chart_shift_options = sorted(timetable["shift"].dropna().unique())
 
             if not chart_date_options or not chart_shift_options:
                 st.info("No exam dates or shifts found in the timetable to generate a room chart.")
                 st.stop() # Use st.stop() to halt execution if no options
 
-            selected_chart_date = st.selectbox("Select Date", chart_date_options, key="cs_room_chart_date")
-            selected_chart_shift = st.selectbox("Select Shift", chart_shift_options, key="cs_room_chart_shift")
+            selected_chart_date = st.selectbox("Select date", chart_date_options, key="cs_room_chart_date")
+            selected_chart_shift = st.selectbox("Select shift", chart_shift_options, key="cs_room_chart_shift")
 
             if st.button("Generate Room Chart"):
                 with st.spinner("Generating room chart..."):
