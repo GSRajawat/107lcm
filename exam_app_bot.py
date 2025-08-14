@@ -2994,6 +2994,7 @@ def calculate_remuneration(shift_assignments_df, room_invigilator_assignments_df
     return df_individual_bills, df_role_summary_matrix, df_class_3_4_final_bills
 
 
+
 def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_rules, prep_closing_assignments, holiday_dates, manual_rates, selected_classes_for_bill, timetable_df, assigned_seats_df):
     """
     Generates a daily summary matrix of remuneration for all roles, including
