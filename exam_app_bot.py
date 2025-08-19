@@ -3267,7 +3267,8 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
                     remuneration_summary['PI/API']['count'] += 1
                     remuneration_summary['PI/API']['total_rem'] += remuneration
                 elif role_key == 'senior_center_superintendent':
-                    if remuneration_summary['SCS']['count'] == 0:
+                    # SCS is paid per day, not per shift, so we only add their remuneration once per date
+                    if date_str not in [s['date & shift'].split(' ')[0] for s in summary_data if 'SCS' in s]: # Check if SCS already added for this day
                         remuneration_summary['SCS']['count'] += 1
                         remuneration_summary['SCS']['total_rem'] += remuneration_rules['senior_center_superintendent']['rate']
                 elif role_key == 'center_superintendent':
