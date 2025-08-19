@@ -36,42 +36,47 @@ except KeyError:
 
 # --- Supabase Helper Functions (Moved to top for proper definition scope) ---
 
-# New function to save prep_closing_assignments to Supabase
 def save_prep_closing_assignments_to_supabase(data_to_save):
     """
     Saves preparation and closing day assignments to the Supabase table.
     'data_to_save' should be a list of dictionaries.
+    This version correctly handles updating unique data for a given set of classes.
     """
     if not supabase:
         return False, "Supabase client not initialized."
 
-    try:
-        # Clear existing data for a clean save (or implement upsert logic if preferred)
-        # For simplicity, we'll delete all existing entries and insert new ones
-        # This approach assumes you manage the state in your app and then push the complete state.
-        # More robust solutions might involve individual upserts or checking for updates.
-        supabase.table("prep_closing_assignments").delete().neq("id", 0).execute()
-        
-        if data_to_save:
-            cleaned_data = []
-            for item in data_to_save:
-                cleaned_item = {
-                    "name": item.get("name"),
-                    "role": item.get("role"),
-                    "prep_days": json.dumps(item.get("prep_days")) if item.get("prep_days") else None,
-                    "closing_days": json.dumps(item.get("closing_days")) if item.get("closing_days") else None,
-                    "selected_classes": json.dumps(item.get("selected_classes")) if item.get("selected_classes") else None
-                }
-                cleaned_data.append(cleaned_item)
-
-            response = supabase.table("prep_closing_assignments").insert(cleaned_data).execute()
-            # Check for errors in the Supabase response
-            if response.data:
-                return True, f"✅ Saved {len(cleaned_data)} prep/closing assignments to Supabase."
-            else:
-                return False, f"❌ Supabase error saving prep/closing assignments: {response.status_code} - {response.content}"
-
+    if not data_to_save:
         return True, "No prep/closing assignments to save." # If data_to_save is empty
+
+    try:
+        # Get the selected_classes from the first item to use for the targeted delete
+        # This assumes all items in the list belong to the same class selection.
+        selected_classes_list = data_to_save[0].get("selected_classes", [])
+        selected_classes_json = json.dumps(selected_classes_list)
+
+        # 1. First, delete all existing entries that match the specific selected_classes.
+        # This acts as a clean "upsert" for this specific class selection.
+        supabase.table("prep_closing_assignments").delete().eq("selected_classes", selected_classes_json).execute()
+        
+        # 2. Prepare and insert the new, cleaned data.
+        cleaned_data = []
+        for item in data_to_save:
+            cleaned_item = {
+                "name": item.get("name"),
+                "role": item.get("role"),
+                "prep_days": json.dumps(item.get("prep_days")) if item.get("prep_days") else None,
+                "closing_days": json.dumps(item.get("closing_days")) if item.get("closing_days") else None,
+                "selected_classes": json.dumps(item.get("selected_classes")) if item.get("selected_classes") else None
+            }
+            cleaned_data.append(cleaned_item)
+
+        response = supabase.table("prep_closing_assignments").insert(cleaned_data).execute()
+        
+        # Check for errors in the Supabase response
+        if response.data:
+            return True, f"✅ Saved {len(cleaned_data)} prep/closing assignments for these classes to Supabase."
+        else:
+            return False, f"❌ Supabase error saving prep/closing assignments: {response.status_code} - {response.content}"
 
     except Exception as e:
         traceback.print_exc()
@@ -113,7 +118,7 @@ def load_prep_closing_assignments_from_supabase():
         traceback.print_exc()
         st.error(f"❌ Error loading prep/closing assignments from Supabase: {e}")
         return {}
-    
+
 
 # New function to save global settings (like holiday dates) to Supabase
 def save_global_setting_to_supabase(setting_key, setting_value):
@@ -1328,50 +1333,67 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
     return final_text_output, None, excel_output_data
 
 # New helper function based on pdftocsv.py's extract_metadata, but using "UNSPECIFIED" defaults
-def extract_metadata_from_pdf_text(text): 
-    # Extract Class Group and Year like "BSC", "2YEAR" 
-    class_match = re.search(re.search(r'([A-Z]+)\s*/?\s*(\d+(SEM|YEAR))', text) )
-    class_val = f"{class_match.group(1)} {class_match.group(2)}" if class_match else "UNSPECIFIED_CLASS" 
- 
-    # Use regex to extract mode and type from the structured pattern
-    # Looking for pattern like "BA / 1YEAR / PRIVATE / SUPP / MAR-2025"
-    pattern_match = re.search(r'([A-Z]+)\s*/\s*(\d+(?:SEM|YEAR))\s*/\s*([A-Z]+)\s*/\s*([A-Z]+)\s*/\s*MAR-2025', text)
-    
+def extract_metadata_from_pdf_text(text):
+    # Extract Class Group, Year/Semester, and Session like "BSC", "1YEAR", "MAR-2025"
+    # Looking for pattern like "BSC / 1YEAR / REGULAR / EXR / MAR-2025" or "LLB / 6SEM / REGULAR / EXR / JUN-2025"
+    pattern_match = re.search(r'([A-Z]+)\s*/\s*(\d+(?:SEM|YEAR))\s*/\s*([A-Z]+)\s*/\s*([A-Z]+)\s*/\s*([A-Z]{3}-20\d{2})', text)
+   
     if pattern_match:
+        class_part = pattern_match.group(1)  # BSC/LLB
+        year_part = pattern_match.group(2)   # 1YEAR/6SEM
+        session_part = pattern_match.group(5)  # MAR-2025/JUN-2025/DEC-2025
+        
+        # Format session from "MAR-2025" to "MAR 25", "JUN-2025" to "JUN 25", etc.
+        session_formatted = session_part.replace("-20", " ")  # "MAR-2025" -> "MAR 25"
+        
+        class_val = f"{class_part} {year_part} - {session_formatted}"
         mode_type = pattern_match.group(3)  # Third element (PRIVATE/REGULAR)
-        type_type = pattern_match.group(4)  # Fourth element (SUPP/REGULAR/etc)
+        type_type = pattern_match.group(4)  # Fourth element (SUPP/EXR/REGULAR/etc)
     else:
-        # Fallback to your original logic but with better ordering
-        mode_type = "UNSPECIFIED_MODE" 
+        # Fallback: try to extract class and year separately
+        class_match = re.search(r'([A-Z]+)\s*/?\s*(\d+(?:SEM|YEAR))', text)
+        session_match = re.search(r'([A-Z]{3}-20\d{2})', text)  # Any 3-letter month + year
+        
+        if class_match and session_match:
+            class_part = class_match.group(1)
+            year_part = class_match.group(2)
+            session_formatted = session_match.group(1).replace("-20", " ")  # Format any session
+            class_val = f"{class_part} {year_part} - {session_formatted}"
+        elif class_match:
+            class_val = f"{class_match.group(1)} {class_match.group(2)}"
+        else:
+            class_val = "UNSPECIFIED_CLASS"
+        
+        # Fallback to original logic for mode and type
+        mode_type = "UNSPECIFIED_MODE"
         # Check for PRIVATE first since it's more specific
-        for keyword_mode in ["PRIVATE", "REGULAR"]: 
-            if keyword_mode in text.upper(): 
-                mode_type = keyword_mode 
-                break 
-                
-        type_type = "UNSPECIFIED_TYPE" 
+        for keyword_mode in ["PRIVATE", "REGULAR"]:
+            if keyword_mode in text.upper():
+                mode_type = keyword_mode
+                break
+               
+        type_type = "UNSPECIFIED_TYPE"
         # Check for more specific types first
-        for keyword_type in ["ATKT", "SUPP", "EXR", "REGULAR", "PRIVATE"]: 
-            if keyword_type in text.upper(): 
-                type_type = keyword_type 
-                break 
+        for keyword_type in ["ATKT", "SUPP", "EXR", "REGULAR", "PRIVATE"]:
+            if keyword_type in text.upper():
+                type_type = keyword_type
+                break
 
     paper_code = re.search(r'Paper Code[:\s]*([A-Z0-9]+)', text, re.IGNORECASE)
     paper_code_val = _format_paper_code(paper_code.group(1)) if paper_code else "UNSPECIFIED_PAPER_CODE" # Use formatter
-    
+   
     paper_name = re.search(r'Paper Name[:\s]*(.+?)(?:\n|$)', text)
     paper_name_val = paper_name.group(1).strip() if paper_name else "UNSPECIFIED_PAPER_NAME"
-    
-    return { 
-        "class": class_val, 
-        "mode": mode_type, 
+   
+    return {
+        "class": class_val,
+        "mode": mode_type,
         "type": type_type,  
-        "room_number": "", 
-        "seat_numbers": [""] * 10, 
-        "paper_code": paper_code_val, 
-        "paper_name": paper_name_val 
+        "room_number": "",
+        "seat_numbers": [""] * 10,
+        "paper_code": paper_code_val,
+        "paper_name": paper_name_val
     }
-  
 
 # --- Integration of pdftocsv.py logic ---
 def process_sitting_plan_pdfs(zip_file_buffer, output_sitting_plan_path, output_timetable_path):
@@ -4156,7 +4178,6 @@ elif menu == "Admin Panel":
                         else:
                             st.warning(msg)
 
-        
         elif admin_option == "Remuneration Bill Generation":
             st.subheader("💰 Remuneration Bill Generation")
             st.info("Calculate remuneration for exam team members based on their assignments.")
@@ -4177,14 +4198,42 @@ elif menu == "Admin Panel":
             st.markdown("---")
             st.subheader("Select Classes for Bill Generation")
             st.info("Select specific classes to include in the remuneration calculation for shift-based roles. Double shift duty conveyance will still be considered for all shifts worked.")
+            
+            # Callback function to handle class selection change
+            def on_class_selection_change():
+                st.session_state.selected_classes_for_bill_state = st.session_state.selected_classes_for_bill_multiselect
+                
+                # Load all assignments from Supabase
+                loaded_prep_closing_assignments_raw = load_prep_closing_assignments_from_supabase()
+
+                # Filter the loaded data based on the new selection
+                prep_closing_assignments = {}
+                current_selected_classes_set = set(st.session_state.selected_classes_for_bill_state)
+
+                for name, data in loaded_prep_closing_assignments_raw.items():
+                    loaded_selected_classes_set = set(data.get('selected_classes', []))
+                    if current_selected_classes_set == loaded_selected_classes_set:
+                        prep_closing_assignments[name] = data
+                
+                # Reset and pre-populate the current input state
+                st.session_state.current_prep_closing_input = {}
+                for member in all_eligible_members:
+                    st.session_state.current_prep_closing_input[member] = {
+                        'role': prep_closing_assignments.get(member, {}).get('role', 'senior_center_superintendent'),
+                        'prep_days': ", ".join(prep_closing_assignments.get(member, {}).get('prep_days', [])),
+                        'closing_days': ", ".join(prep_closing_assignments.get(member, {}).get('closing_days', []))
+                    }
+                    
+            # The multiselect widget now has a callback that triggers when its value changes
             selected_classes_for_bill = st.multiselect(
                 "Select Classes (leave empty for all classes)",
                 options=all_classes_in_timetable,
-                default=st.session_state.get('selected_classes_for_bill_state', all_classes_in_timetable), # Load saved selection
-                key="selected_classes_for_bill_multiselect"
+                default=st.session_state.get('selected_classes_for_bill_state', all_classes_in_timetable),
+                key="selected_classes_for_bill_multiselect",
+                on_change=on_class_selection_change # This is the crucial addition
             )
-            # Save the current selection to session state
-            st.session_state.selected_classes_for_bill_state = selected_classes_for_bill
+            # The session state is now updated by the callback, so we don't need this line anymore.
+            # st.session_state.selected_classes_for_bill_state = selected_classes_for_bill
 
             st.markdown("---")
             st.subheader("Manual Remuneration Rates (per shift/day)")
@@ -4252,7 +4301,7 @@ elif menu == "Admin Panel":
                 if 'current_prep_closing_input' not in st.session_state:
                     st.session_state.current_prep_closing_input = {}
                 
-                # Pre-populate session state from loaded data
+                # Pre-populate session state from loaded data, but only if it's not already filled
                 for member in all_eligible_members:
                     if member not in st.session_state.current_prep_closing_input:
                         st.session_state.current_prep_closing_input[member] = {
@@ -4366,7 +4415,6 @@ elif menu == "Admin Panel":
                 else:
                     st.error(message)
                 st.rerun() # Rerun to ensure the UI updates with the saved value
-
 
             # Display conveyance rules
             st.markdown("---")
