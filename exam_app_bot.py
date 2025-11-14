@@ -370,6 +370,25 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
     except Exception as e:
         return False, f"❌ Error uploading to `{table_name}`: {str(e)}"
 
+
+# --- NEW/UPDATED HELPER FUNCTIONS ---
+
+def _format_roll_number(roll):
+    """
+    Converts any roll number input to a clean, stripped string,
+    removing any trailing '.0' from Excel/float conversions.
+    """
+    if pd.isna(roll):
+        return ""  # Return empty string for NaNs
+    
+    # Convert to string, strip whitespace, and remove trailing '.0'
+    roll_str = str(roll).strip()
+    if roll_str.endswith('.0'):
+        roll_str = roll_str[:-2]
+        
+    return roll_str
+
+
 # MODIFIED: download_supabase_to_csv (to handle API exceptions)
 def download_supabase_to_csv(table_name, filename):
     all_data = []
@@ -505,73 +524,91 @@ def download_attestation_data_to_parent_folder():
 
 # --- MODIFIED: load_data (remove attestation download from here) ---
 def load_data():
+    """
+    Loads all required CSV data from local files, downloading from Supabase if missing.
+    This version includes CRITICAL cleaning for all join keys (whitespace AND trailing '.0').
+    """
     sitting_plan_df = pd.DataFrame()
     timetable_df = pd.DataFrame()
     assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
     attestation_df = pd.DataFrame()
 
-    # --- Initial Downloads from Supabase if local files are missing/empty ---
+    # --- Initial Downloads from Supabase (Your existing logic is fine) ---
     
     # Download Timetable
     if not os.path.exists(TIMETABLE_FILE) or os.stat(TIMETABLE_FILE).st_size == 0:
         st.info(f"Attempting to download {TIMETABLE_FILE} from Supabase...")
         success, message = download_supabase_to_csv("timetable", TIMETABLE_FILE)
         if not success:
-            st.warning(f"Failed to download {TIMETABLE_FILE} from Supabase: {message}. Will proceed with an empty DataFrame.")
+            st.warning(f"Failed to download {TIMETABLE_FILE} from Supabase: {message}.")
     
     # Download Sitting Plan
     if not os.path.exists(SITTING_PLAN_FILE) or os.stat(SITTING_PLAN_FILE).st_size == 0:
         st.info(f"Attempting to download {SITTING_PLAN_FILE} from Supabase...")
         success, message = download_supabase_to_csv("sitting_plan", SITTING_PLAN_FILE)
         if not success:
-            st.warning(f"Failed to download {SITTING_PLAN_FILE} from Supabase: {message}. Will proceed with an empty DataFrame.")
+            st.warning(f"Failed to download {SITTING_PLAN_FILE} from Supabase: {message}.")
 
     # Download Assigned Seats
     if not os.path.exists(ASSIGNED_SEATS_FILE) or os.stat(ASSIGNED_SEATS_FILE).st_size == 0:
         st.info(f"Attempting to download {ASSIGNED_SEATS_FILE} from Supabase...")
         success, message = download_supabase_to_csv("assigned_seats", ASSIGNED_SEATS_FILE)
         if not success:
-            st.warning(f"Failed to download {ASSIGNED_SEATS_FILE} from Supabase: {message}. Will proceed with an empty DataFrame.")
+            st.warning(f"Failed to download {ASSIGNED_SEATS_FILE} from Supabase: {message}.")
 
-    # NOTE: Attestation data download logic is moved to its own function
-    # You will need to call `download_attestation_data_to_parent_folder()` explicitly
-    # if you want this file to be downloaded by a user action.
-            
-    # Load all DataFrames from local CSVs (now potentially updated from Supabase)
-    if os.path.exists(SITTING_PLAN_FILE):
+    # --- Load DataFrames with Consistent Cleaning ---
+    
+    # Load Sitting Plan
+    if os.path.exists(SITTING_PLAN_FILE) and os.stat(SITTING_PLAN_FILE).st_size > 0:
         try:
-            sitting_plan_df = pd.read_csv(SITTING_PLAN_FILE, dtype={
-                f"Roll Number {i}": str for i in range(1, 11)
-            })
+            roll_cols = {f"Roll Number {i}": str for i in range(1, 11)}
+            sitting_plan_df = pd.read_csv(SITTING_PLAN_FILE, dtype=roll_cols)
             sitting_plan_df.columns = sitting_plan_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+            
             if 'Paper Code' in sitting_plan_df.columns:
                 sitting_plan_df['Paper Code'] = sitting_plan_df['Paper Code'].apply(_format_paper_code)
+            
+            # **FIX**: Clean all roll number columns
+            for i in range(1, 11):
+                col_name = f'Roll Number {i}'
+                if col_name in sitting_plan_df.columns:
+                    sitting_plan_df[col_name] = sitting_plan_df[col_name].apply(_format_roll_number)
+
         except Exception as e:
-            st.error(f"Error loading {SITTING_PLAN_FILE} from local file: {e}")
+            st.error(f"Error loading {SITTING_PLAN_FILE}: {e}")
             sitting_plan_df = pd.DataFrame()
 
-    if os.path.exists(TIMETABLE_FILE):
+    # Load Timetable
+    if os.path.exists(TIMETABLE_FILE) and os.stat(TIMETABLE_FILE).st_size > 0:
         try:
-            timetable_df = pd.read_csv(TIMETABLE_FILE)
+            timetable_df = pd.read_csv(TIMETABLE_FILE, dtype=str)
             timetable_df.columns = timetable_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+            
+            # **FIX**: Clean all key columns
             if 'Paper Code' in timetable_df.columns:
                 timetable_df['Paper Code'] = timetable_df['Paper Code'].apply(_format_paper_code)
+            if 'date' in timetable_df.columns:
+                timetable_df['date'] = timetable_df['date'].str.strip()
+            if 'shift' in timetable_df.columns:
+                timetable_df['shift'] = timetable_df['shift'].str.strip()
+                
         except Exception as e:
-            st.error(f"Error loading {TIMETABLE_FILE} from local file: {e}")
+            st.error(f"Error loading {TIMETABLE_FILE}: {e}")
             timetable_df = pd.DataFrame()
     
-    if os.path.exists(ASSIGNED_SEATS_FILE):
+    # Load Assigned Seats
+    if os.path.exists(ASSIGNED_SEATS_FILE) and os.stat(ASSIGNED_SEATS_FILE).st_size > 0:
         try:
             temp_assigned_df = pd.read_csv(ASSIGNED_SEATS_FILE, dtype=str)
             temp_assigned_df.columns = temp_assigned_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
 
+            # Your rename logic
             rename_map = {}
             if 'Roll Numb' in temp_assigned_df.columns: rename_map['Roll Numb'] = 'Roll Number'
             if 'Paper Cod' in temp_assigned_df.columns: rename_map['Paper Cod'] = 'Paper Code'
             if 'Paper Nan' in temp_assigned_df.columns: rename_map['Paper Nan'] = 'Paper Name'
             if 'Room Nur' in temp_assigned_df.columns: rename_map['Room Nur'] = 'Room Number'
             if 'Seat Numi' in temp_assigned_df.columns: rename_map['Seat Numi'] = 'Seat Number'
-
             if rename_map:
                 temp_assigned_df.rename(columns=rename_map, inplace=True)
             
@@ -579,67 +616,73 @@ def load_data():
             missing_cols = [col for col in required_assigned_cols if col not in temp_assigned_df.columns]
 
             if missing_cols:
-                st.error(f"Critical Error: Missing essential columns in {ASSIGNED_SEATS_FILE}: {missing_cols}. Please verify the file content.")
+                st.error(f"Critical Error: Missing essential columns in {ASSIGNED_SEATS_FILE}: {missing_cols}.")
                 assigned_seats_df = pd.DataFrame(columns=required_assigned_cols)
             else:
                 assigned_seats_df = temp_assigned_df[required_assigned_cols].copy()
+                
+                # **FIX**: Clean all key columns
                 assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].apply(_format_paper_code)
-                for col in ["Roll Number", "Room Number", "Seat Number", "date", "shift"]:
-                    if col in assigned_seats_df.columns:
-                        assigned_seats_df[col] = assigned_seats_df[col].astype(str)
+                assigned_seats_df['Roll Number'] = assigned_seats_df['Roll Number'].apply(_format_roll_number)
+                assigned_seats_df['date'] = assigned_seats_df['date'].astype(str).str.strip()
+                assigned_seats_df['shift'] = assigned_seats_df['shift'].astype(str).str.strip()
+                
+                # Clean other columns for good measure
+                assigned_seats_df['Room Number'] = assigned_seats_df['Room Number'].astype(str).str.strip()
+                assigned_seats_df['Seat Number'] = assigned_seats_df['Seat Number'].astype(str).str.strip()
 
         except Exception as e:
-            st.error(f"Error loading {ASSIGNED_SEATS_FILE} from local file: {e}. Ensure it's a valid CSV file.")
-            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
+            st.error(f"Error loading {ASSIGNED_SEATS_FILE}: {e}.")
+            assigned_seats_df = pd.DataFrame(columns=required_assigned_cols)
     
-    # Check for attestation_data_combined in the parent folder
+    # Load Attestation Data
     current_script_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
     attestation_file_in_parent = os.path.join(parent_dir, ATTESTATION_DATA_FILE)
 
-    if os.path.exists(attestation_file_in_parent):
+    if os.path.exists(attestation_file_in_parent) and os.stat(attestation_file_in_parent).st_size > 0:
         try:
             attestation_df = pd.read_csv(attestation_file_in_parent, dtype=str)
             attestation_df.columns = attestation_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
+            
+            # **FIX**: Clean the key 'Roll Number' column
+            if 'Roll Number' in attestation_df.columns:
+                attestation_df['Roll Number'] = attestation_df['Roll Number'].apply(_format_roll_number)
+            
             for i in range(1, 11):
                 col_name = f'Paper {i}'
                 if col_name in attestation_df.columns:
                     attestation_df[col_name] = attestation_df[col_name].fillna('').astype(str)
             st.info(f"Loaded '{ATTESTATION_DATA_FILE}' from parent folder.")
         except Exception as e:
-            st.error(f"Error loading {ATTESTATION_DATA_FILE} from parent folder: {e}. Ensure it's a valid CSV file.")
+            st.error(f"Error loading {ATTESTATION_DATA_FILE} from parent folder: {e}.")
             attestation_df = pd.DataFrame()
-    else:
-        st.warning(f"'{ATTESTATION_DATA_FILE}' not found in the parent folder. Some features may be limited.")
+  
             
-    # Store loaded dataframes in session state for consistency across app reruns
+    # Store in session state
     st.session_state['sitting_plan'] = sitting_plan_df
     st.session_state['timetable'] = timetable_df
     st.session_state['assigned_seats_df'] = assigned_seats_df
     st.session_state['attestation_df'] = attestation_df
 
     return sitting_plan_df, timetable_df, assigned_seats_df, attestation_df
+    
 
 
-# Helper function to ensure consistent string formatting for paper codes (remove .0 if numeric)
-def _format_paper_code(code_str):
-    if pd.isna(code_str) or not code_str:
-        return ""
-    s = str(code_str).strip()
-    # If it looks like a float (e.g., "12345.0"), convert to int string
-    if s.endswith('.0') and s[:-2].isdigit():
-        return s[:-2]
-    return s
-
-def _format_paper_code(code_str):
-    if pd.isna(code_str) or not code_str:
-        return ""
-    s = str(code_str).strip()
-    # If it looks like a float (e.g., "12345.0"), convert to int string
-    if s.endswith('.0') and s[:-2].isdigit():
-        return s[:-2]
-    return s
-
+def _format_paper_code(code):
+    """
+    Converts any paper code input to a clean, stripped string,
+    removing any trailing '.0' from Excel/float conversions.
+    """
+    if pd.isna(code):
+        return ""  # Return empty string for NaNs
+    
+    # Convert to string, strip whitespace, and remove trailing '.0'
+    code_str = str(code).strip()
+    if code_str.endswith('.0'):
+        code_str = code_str[:-2]
+        
+    return code_str
 
 def load_shift_assignments():
     if os.path.exists(shift_ASSIGNMENTS_FILE):
@@ -725,99 +768,6 @@ def _format_paper_code(code_str):
         return s[:-2]
     return s
 
-def load_data():
-    # Initialize all DataFrames at the beginning
-    sitting_plan_df = pd.DataFrame()
-    timetable_df = pd.DataFrame()
-    assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
-    attestation_df = pd.DataFrame()
-
-    # --- Load sitting_plan_df ---
-    if os.path.exists(SITTING_PLAN_FILE):
-        try:
-            sitting_plan_df = pd.read_csv(SITTING_PLAN_FILE, dtype={
-                f"Roll Number {i}": str for i in range(1, 11)
-            })
-            # Robustly clean column names: strip whitespace from all and replace problematic chars
-            sitting_plan_df.columns = sitting_plan_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
-            
-            if 'Paper Code' in sitting_plan_df.columns:
-                sitting_plan_df['Paper Code'] = sitting_plan_df['Paper Code'].apply(_format_paper_code)
-        except Exception as e:
-            st.error(f"Error loading {SITTING_PLAN_FILE}: {e}")
-            sitting_plan_df = pd.DataFrame()
-
-    # --- Load timetable_df ---
-    if os.path.exists(TIMETABLE_FILE):
-        try:
-            timetable_df = pd.read_csv(TIMETABLE_FILE)
-            # Robustly clean column names
-            timetable_df.columns = timetable_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
-            
-            if 'Paper Code' in timetable_df.columns:
-                timetable_df['Paper Code'] = timetable_df['Paper Code'].apply(_format_paper_code)
-        except Exception as e:
-            st.error(f"Error loading {TIMETABLE_FILE}: {e}")
-            timetable_df = pd.DataFrame()
-    
-    # --- Load assigned_seats_df ---
-    if os.path.exists(ASSIGNED_SEATS_FILE):
-        try:
-            # Read as strings first to avoid dtype issues with mixed types or weird characters
-            temp_assigned_df = pd.read_csv(ASSIGNED_SEATS_FILE, dtype=str)
-            
-            # Robustly clean column names immediately after reading
-            # This handles any leading/trailing spaces, BOM, or non-breaking spaces
-            temp_assigned_df.columns = temp_assigned_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
-
-            # Explicitly rename truncated/misnamed columns if they exist after initial stripping
-            # Only rename if the *source* column exists.
-            rename_map = {}
-            if 'Roll Numb' in temp_assigned_df.columns: # Example of old truncated name
-                rename_map['Roll Numb'] = 'Roll Number'
-            if 'Paper Cod' in temp_assigned_df.columns: # Example of old truncated name
-                rename_map['Paper Cod'] = 'Paper Code'
-            if 'Paper Nan' in temp_assigned_df.columns: # From your screenshot
-                rename_map['Paper Nan'] = 'Paper Name'
-            if 'Room Nur' in temp_assigned_df.columns: # From your screenshot
-                rename_map['Room Nur'] = 'Room Number'
-            if 'Seat Numi' in temp_assigned_df.columns: # From your screenshot
-                rename_map['Seat Numi'] = 'Seat Number'
-
-            if rename_map:
-                temp_assigned_df.rename(columns=rename_map, inplace=True)
-            
-            # Now, after potential renaming and aggressive cleaning, ensure the required columns are present.
-            # If 'Paper Code' is still not there, it means the source file genuinely lacks it or has an unrecognized variant.
-            required_assigned_cols = ["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"]
-            missing_cols = [col for col in required_assigned_cols if col not in temp_assigned_df.columns]
-
-            if missing_cols:
-                st.error(f"Critical Error: Missing essential columns in {ASSIGNED_SEATS_FILE}: {missing_cols}. Please verify the file content and try re-uploading via Admin Panel.")
-                assigned_seats_df = pd.DataFrame(columns=required_assigned_cols) # Return empty DataFrame with correct columns
-            else:
-                # Select only the required columns and ensure correct order, then proceed with type conversions/formatting
-                assigned_seats_df = temp_assigned_df[required_assigned_cols].copy() 
-                assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].apply(_format_paper_code)
-                # Ensure all are strings as per original intent for safety
-                for col in ["Roll Number", "Room Number", "Seat Number", "date", "shift"]:
-                    if col in assigned_seats_df.columns: # Double-check column existence after selection
-                        assigned_seats_df[col] = assigned_seats_df[col].astype(str)
-
-        except Exception as e:
-            st.error(f"Error loading {ASSIGNED_SEATS_FILE}: {e}. Ensure it's a valid CSV file.")
-            assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
-    
-    # --- Load attestation_df ---
-    if os.path.exists(ATTESTATION_DATA_FILE):
-        try:
-            attestation_df = pd.read_csv(ATTESTATION_DATA_FILE, dtype={"Roll Number": str, "Enrollment Number": str})
-            attestation_df.columns = attestation_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
-        except Exception as e:
-            st.error(f"Error loading {ATTESTATION_DATA_FILE}: {e}. Ensure it's a valid CSV file.")
-            attestation_df = pd.DataFrame()
-            
-    return sitting_plan_df, timetable_df, assigned_seats_df, attestation_df
 
 
 # Save uploaded files (for admin panel)
@@ -1196,64 +1146,74 @@ def get_all_exams(roll_number, sitting_plan, timetable):
     return student_exams
 
 # Get sitting details for a specific roll number and date (Student View)
-def get_sitting_details(roll_number, date, sitting_plan, timetable):
+#
+# DELETE your old 'get_sitting_details' function and REPLACE it with this one
+#
+# This new function uses the CORRECT data sources.
+#
+def get_student_exam_details(roll_number, date, assigned_seats_df, timetable_df):
+    """
+    Finds exam details for a student by correctly searching the 
+    assigned_seats_df and cross-referencing timetable_df.
+    """
+    
+    # Use the cleaning functions from load_data.
+    # Make sure _format_roll_number(roll) exists from my previous answer!
+    # If not, use this:
+    def _format_roll_number(roll):
+        roll_str = str(roll).strip()
+        return roll_str[:-2] if roll_str.endswith('.0') else roll_str
+
+    roll_number_str = _format_roll_number(roll_number)
+    date_str = str(date).strip() # Should be 'DD-MM-YYYY'
+
     found_sittings = []
-    roll_number_str = str(roll_number).strip()
-    date_str = str(date).strip() # Ensure date is in 'DD-MM-YYYY' string format
+    
+    # 1. Find the student's assigned seats on that day
+    # (Assumes load_data has cleaned these columns!)
+    student_exams_on_date = assigned_seats_df[
+        (assigned_seats_df['Roll Number'] == roll_number_str) &
+        (assigned_seats_df['date'] == date_str)
+    ]
 
-    for _, sp_row in sitting_plan.iterrows():
-        for i in range(1, 11):
-            r_col = f"Roll Number {i}"
-            s_col = f"Seat Number {i}" # Corresponding seat number column
+    if student_exams_on_date.empty:
+        return [] # No exams found for this roll number and date
 
-            # Check if the roll number exists in any of the roll number columns in this sitting plan row
-            if r_col in sp_row and str(sp_row[r_col]).strip() == roll_number_str:
-                # If roll number matches, extract paper and class details from this sitting plan row
-                paper = str(sp_row["Paper"]).strip()
-                paper_code = str(sp_row["Paper Code"]).strip()
-                paper_name = str(sp_row["Paper Name"]).strip()
-                _class = str(sp_row["Class"]).strip()
+    # 2. Merge with timetable to get 'Class' (and 'Mode'/'Type' if they existed)
+    # We must merge on all keys to get the *exact* class
+    # Note: This assumes timetable_df is also cleaned in load_data
+    
+    # Ensure merge keys are correct types (paranoia is good here)
+    timetable_to_merge = timetable_df[['Paper Code', 'date', 'shift', 'Class']].copy()
+    
+    # We may not need all keys if Paper Code + date + shift is unique
+    final_details = pd.merge(
+        student_exams_on_date,
+        timetable_to_merge,
+        on=['Paper Code', 'date', 'shift'],
+        how='left'
+    )
+    
+    # Fill in any missing data from the merge
+    final_details['Class'] = final_details['Class'].fillna('N/A')
 
-                # Find if this paper's date matches the search in the timetable
-                matches_in_timetable = timetable[
-                    (timetable["Class"].astype(str).str.strip().str.lower() == _class.lower()) &
-                    (timetable["Paper"].astype(str).str.strip() == paper) &
-                    (timetable["Paper Code"].astype(str).str.strip() == paper_code) &
-                    (timetable["Paper Name"].astype(str).str.strip() == paper_name) &
-                    (timetable["date"].astype(str).str.strip() == date_str) # Match against the provided date
-                ]
-
-                if not matches_in_timetable.empty:
-                    # If there are multiple timetable entries for the same paper/class/date (e.g., different shifts),
-                    # add all of them as separate sitting details.
-                    for _, tt_row in matches_in_timetable.iterrows():
-                        # Safely get seat number for display and sorting
-                        seat_num_display = ""
-                        seat_num_sort_key = float('inf') # Default sort key for non-numeric
-
-                        if s_col in sp_row.index: # Check if column exists
-                            seat_num_raw = str(sp_row[s_col]).strip()
-                            try:
-                                seat_num_sort_key = int(float(seat_num_raw)) # Convert to float first to handle .0, then int
-                                seat_num_display = str(int(float(seat_num_raw))) # Display as integer string
-                            except ValueError:
-                                seat_num_display = seat_num_raw if seat_num_raw else "N/A"
-                        else:
-                            seat_num_display = "N/A" # Column itself is missing
-
-                        found_sittings.append({
-                            "Room Number": sp_row["Room Number"],
-                            "Seat Number": seat_num_display, # Use display value
-                            "Class": _class,
-                            "Paper": paper,
-                            "Paper Code": paper_code,
-                            "Paper Name": paper_name,
-                            "date": tt_row["date"],
-                            "shift": tt_row["shift"],
-                            "Mode": sp_row.get("Mode", ""), # Use .get() for safe access
-                            "Type": sp_row.get("Type", "") # Use .get() for safe access
-                        })
+    # 3. Format the results
+    for _, row in final_details.iterrows():
+        found_sittings.append({
+            "Room Number": row["Room Number"],
+            "Seat Number": row["Seat Number"],
+            "Class": row["Class"],
+            "Paper": row.get("Paper", ""), # 'Paper' (short name) is in timetable, not assigned_seats
+            "Paper Code": row["Paper Code"],
+            "Paper Name": row["Paper Name"],
+            "date": row["date"],
+            "shift": row["shift"],
+            "Mode": row.get("Mode", "REGULAR"), # Default if not found
+            "Type": row.get("Type", "REGULAR")  # Default if not found
+        })
+        
     return found_sittings
+
 
 # New function to get all students for a given date and shift, sorted by roll number (Admin Panel)
 def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_df, timetable):
@@ -3437,28 +3397,52 @@ if menu == "Student View":
         "View Full Timetable"
     ])
 
+    #
+# REPLACE your Streamlit code block with this one
+#
     if option == "Search by Roll Number and date":
         roll = st.text_input("Enter Roll Number", max_chars=9)
         date_input = st.date_input("Enter Exam date", value=datetime.date.today())
+
         if st.button("Search"):
-            if sitting_plan.empty or timetable.empty:
-                st.warning("Sitting plan or timetable data is missing. Please upload them via the Admin Panel to search.")
+            # --- FIX: Load the CORRECT DataFrames from session state ---
+            # We need 'assigned_seats_df' and 'timetable', NOT 'sitting_plan'
+            assigned_seats_df = st.session_state.get('assigned_seats_df', pd.DataFrame())
+            timetable = st.session_state.get('timetable', pd.DataFrame())
+
+            if assigned_seats_df.empty or timetable.empty:
+                st.warning("Assigned seats or timetable data is missing. Please upload them via the Admin Panel.")
+            
             else:
-                results = get_sitting_details(roll, date_input.strftime('%d-%m-%Y'), sitting_plan, timetable)
+                # --- FIX: Call the NEW function with the CORRECT arguments ---
+                results = get_student_exam_details(
+                    roll, 
+                    date_input.strftime('%d-%m-%Y'), 
+                    assigned_seats_df, 
+                    timetable
+                )
+                
                 if results:
                     st.success(f"Found {len(results)} exam(s) for Roll Number {roll} on {date_input.strftime('%d-%m-%Y')}:")
                     for i, result in enumerate(results):
                         st.markdown(f"---")
-                        st.subheader(f"Exam {i+1}")
+                        
+                        
+                        # This will now display the correct data, not 'nan'
                         st.write(f"**Room Number:** {result['Room Number']}")
                         st.write(f"**🪑 Seat Number:** {result['Seat Number']}")
-                        st.write(f"**📚 Paper:** {result['Paper']} - {result['Paper Name']} - ({result['Paper Code']})")
-                        st.write(f"**🏫 Class:** {result['Class']}")
+                        
+                        # Format paper string
+                        paper_display = f"{result['Paper Name']} ({result['Paper Code']})"
+                        if result['Paper']:
+                            paper_display = f"{result['Paper']} - {paper_display}"
+                        
+                        st.write(f"**📚 Paper:** {paper_display}")
+                        
                         st.write(f"**🎓 Student type:** {result['Mode']} - {result['Type']}")
                         st.write(f"**🕐 shift:** {result['shift']}, **📅 date:** {result['date']}")
                 else:
-                    st.warning("No data found for the given inputs.")
-
+                    st.warning("No data found for the given inputs. Check that the Roll Number and date are correct and data is loaded.")
     elif option == "Get Full Exam Schedule by Roll Number":
         roll = st.text_input("Enter Roll Number")
         if st.button("Get Schedule"):
