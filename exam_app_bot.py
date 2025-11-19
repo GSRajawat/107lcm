@@ -727,7 +727,7 @@ def save_shift_assignment(date, shift, assignments):
     # Create a unique key for the assignment
     assignment_key = f"{date}_{shift}"
 
-    # Prepare data for DataFrame, converting lists to string representations
+    # Prepare data for DataFrame
     data_for_df = {
         'date': date,
         'shift': shift,
@@ -736,24 +736,32 @@ def save_shift_assignment(date, shift, assignments):
         'assistant_center_superintendent': str(assignments.get('assistant_center_superintendent', [])),
         'permanent_invigilator': str(assignments.get('permanent_invigilator', [])),
         'assistant_permanent_invigilator': str(assignments.get('assistant_permanent_invigilator', [])),
-        'class_3_worker': str(assignments.get('class_3_worker', [])), # Added new role
-        'class_4_worker': str(assignments.get('class_4_worker', []))  # Added new role
+        'class_3_worker': str(assignments.get('class_3_worker', [])),
+        'class_4_worker': str(assignments.get('class_4_worker', []))
     }
     new_row_df = pd.DataFrame([data_for_df])
 
     # Check if assignment_key already exists
     if assignment_key in (assignments_df['date'] + '_' + assignments_df['shift']).values:
-        # Update existing record
         idx_to_update = assignments_df[(assignments_df['date'] == date) & (assignments_df['shift'] == shift)].index[0]
         for col, val in data_for_df.items():
             assignments_df.loc[idx_to_update, col] = val
     else:
-        # Add new record
         assignments_df = pd.concat([assignments_df, new_row_df], ignore_index=True)
     
     try:
+        # 1. Save to local CSV
         assignments_df.to_csv(shift_ASSIGNMENTS_FILE, index=False)
-        return True, "shift assignments saved successfully!"
+
+        # 2. Sync to Supabase
+        if supabase:
+            try:
+                supabase.table("shift_assignments").delete().neq("id", 0).execute()
+                upload_csv_to_supabase("shift_assignments", shift_ASSIGNMENTS_FILE)
+            except Exception as db_e:
+                 return True, f"Saved locally, but Supabase sync failed: {db_e}"
+
+        return True, "Shift assignments saved and synced to Supabase!"
     except Exception as e:
         return False, f"Error saving shift assignments: {e}"
 
@@ -840,23 +848,30 @@ def save_cs_report_csv(report_key, data):
     data_for_df['absent_roll_numbers'] = str(data_for_df.get('absent_roll_numbers', []))
     data_for_df['ufm_roll_numbers'] = str(data_for_df.get('ufm_roll_numbers', []))
 
-    # Convert the single data dictionary to a DataFrame row
     new_row_df = pd.DataFrame([data_for_df])
 
-    # Check if report_key already exists in the DataFrame
     if report_key in reports_df['report_key'].values:
-        # Update existing record
         idx_to_update = reports_df[reports_df['report_key'] == report_key].index[0]
-        # Update values in that row using .loc
         for col, val in data_for_df.items():
             reports_df.loc[idx_to_update, col] = val
     else:
-        # Add new record
         reports_df = pd.concat([reports_df, new_row_df], ignore_index=True)
 
     try:
+        # 1. Save to local CSV
         reports_df.to_csv(CS_REPORTS_FILE, index=False)
-        return True, "Report saved to CSV successfully!"
+
+        # 2. Sync to Supabase
+        if supabase:
+            try:
+                supabase.table("cs_reports").delete().neq("id", 0).execute()
+                # We must define the json fields for correct parsing in upload_csv_to_supabase
+                # Fortunately upload_csv_to_supabase already handles this internally
+                upload_csv_to_supabase("cs_reports", CS_REPORTS_FILE)
+            except Exception as db_e:
+                return True, f"Saved locally, but Supabase sync failed: {db_e}"
+
+        return True, "Report saved and synced to Supabase successfully!"
     except Exception as e:
         return False, f"Error saving report to CSV: {e}"
 
@@ -882,8 +897,20 @@ def load_exam_team_members():
 def save_exam_team_members(members):
     df = pd.DataFrame({'Name': sorted(list(set(members)))}) # Remove duplicates and sort
     try:
+        # 1. Save to local CSV
         df.to_csv(EXAM_TEAM_MEMBERS_FILE, index=False)
-        return True, "Exam team members saved successfully!"
+        
+        # 2. Sync to Supabase (Delete old data, Upload new data)
+        if supabase:
+            try:
+                # Delete all existing rows to prevent duplicates (assumes table has an 'id' column)
+                supabase.table("exam_team_members").delete().neq("id", 0).execute()
+                # Upload the updated CSV
+                upload_csv_to_supabase("exam_team_members", EXAM_TEAM_MEMBERS_FILE)
+            except Exception as db_e:
+                return True, f"Saved locally, but Supabase sync failed: {db_e}"
+
+        return True, "Exam team members saved and synced to Supabase successfully!"
     except Exception as e:
         return False, f"Error saving exam team members: {e}"
 
@@ -1075,7 +1102,6 @@ def save_room_invigilator_assignment(date, shift, room_num, invigilators):
     # Create a unique key for the assignment
     assignment_key = f"{date}_{shift}_{room_num}"
 
-    # Prepare data for DataFrame, converting list to string representation
     data_for_df = {
         'date': date,
         'shift': shift,
@@ -1086,7 +1112,6 @@ def save_room_invigilator_assignment(date, shift, room_num, invigilators):
 
     # Check if assignment_key already exists
     if assignment_key in (inv_df['date'] + '_' + inv_df['shift'] + '_' + inv_df['room_num'].astype(str)).values:
-        # Update existing record
         idx_to_update = inv_df[
             (inv_df['date'] == date) & 
             (inv_df['shift'] == shift) & 
@@ -1095,12 +1120,21 @@ def save_room_invigilator_assignment(date, shift, room_num, invigilators):
         for col, val in data_for_df.items():
             inv_df.loc[idx_to_update, col] = val
     else:
-        # Add new record
         inv_df = pd.concat([inv_df, new_row_df], ignore_index=True)
     
     try:
+        # 1. Save to local CSV
         inv_df.to_csv(ROOM_INVIGILATORS_FILE, index=False)
-        return True, "Room invigilator assignments saved successfully!"
+
+        # 2. Sync to Supabase
+        if supabase:
+            try:
+                supabase.table("room_invigilator_assignments").delete().neq("id", 0).execute()
+                upload_csv_to_supabase("room_invigilator_assignments", ROOM_INVIGILATORS_FILE)
+            except Exception as db_e:
+                return True, f"Saved locally, but Supabase sync failed: {db_e}"
+
+        return True, "Room invigilator assignments saved and synced to Supabase!"
     except Exception as e:
         return False, f"Error saving room invigilator assignments: {e}"
 
