@@ -4103,12 +4103,16 @@ elif menu == "Admin Panel":
                     st.info("No `assigned_seats.csv` found to reset.")
                 st.rerun() # Rerun the app to reflect the changes
 
-        elif admin_option == "Room Occupancy Report": # New Room Occupancy Report section
+        elif admin_option == "Room Occupancy Report": 
             display_room_occupancy_report(sitting_plan, assigned_seats_df, timetable)
+            
+            st.markdown("---")
+            st.subheader("💾 Database Backup & Restore")
             
             if st.button("🚀 Start (Download All Tables as CSVs)"):
                 with st.spinner("Downloading all Supabase tables to CSV files..."):
                     # Table to CSV filename mapping
+                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings'
                     table_csv_mapping = {
                         "timetable": "timetable.csv",
                         "sitting_plan": "sitting_plan.csv",
@@ -4117,7 +4121,9 @@ elif menu == "Admin Panel":
                         "shift_assignments": "shift_assignments.csv",
                         "room_invigilator_assignments": "room_invigilator_assignments.csv",
                         "cs_reports": "cs_reports.csv",
-                        "attestation_data_combined": "attestation_data_combined.csv"
+                        "attestation_data_combined": "attestation_data_combined.csv",
+                        "prep_closing_assignments": "prep_closing_assignments.csv",
+                        "global_settings": "global_settings.csv"
                     }
                     
                     st.markdown("### 📥 Downloading all Supabase tables to CSV files...")
@@ -4129,6 +4135,9 @@ elif menu == "Admin Panel":
                             current_script_dir = os.path.dirname(os.path.abspath(__file__))
                             parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
                             full_path_attestation = os.path.join(parent_dir, csv_filename)
+                            # We use the helper but target the specific file path logic if needed, 
+                            # usually download_supabase_to_csv handles local dir. 
+                            # For this button, we usually just save to current dir for backup.
                             success, msg = download_supabase_to_csv(table_name, csv_filename)
                         else:
                             success, msg = download_supabase_to_csv(table_name, csv_filename)
@@ -4146,6 +4155,7 @@ elif menu == "Admin Panel":
 
             if st.button("🛑 Stop (Reset and Re-upload All CSVs)"):
                 with st.spinner("Deleting all Supabase table rows..."):
+                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings' to delete order
                     table_order = [
                         "cs_reports",
                         "room_invigilator_assignments", 
@@ -4154,7 +4164,9 @@ elif menu == "Admin Panel":
                         "assigned_seats",
                         "sitting_plan",
                         "timetable",
-                        "attestation_data_combined"
+                        "attestation_data_combined",
+                        "prep_closing_assignments",
+                        "global_settings"
                     ]
 
                     delete_errors = []
@@ -4169,7 +4181,7 @@ elif menu == "Admin Panel":
                 else:
                     st.success("✅ All existing Supabase table data deleted.")
 
-                    # Now re-upload all CSVs to Supabase
+                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings' to upload mapping
                     csv_table_mapping = {
                         "timetable.csv": ("timetable", None),
                         "sitting_plan.csv": ("sitting_plan", None), 
@@ -4178,18 +4190,20 @@ elif menu == "Admin Panel":
                         "shift_assignments.csv": ("shift_assignments", None),
                         "room_invigilator_assignments.csv": ("room_invigilator_assignments", None),
                         "cs_reports.csv": ("cs_reports", None),
-                        "attestation_data_combined.csv": ("attestation_data_combined", None)
+                        "attestation_data_combined.csv": ("attestation_data_combined", None),
+                        "prep_closing_assignments.csv": ("prep_closing_assignments", None),
+                        "global_settings.csv": ("global_settings", None)
                     }
 
                     st.markdown("### 📤 Uploading all CSVs to Supabase...")
                     for file, (table, keys) in csv_table_mapping.items():
-                        # Use the corrected logic to handle the file path
                         current_script_dir = os.path.dirname(os.path.abspath(__file__))
                         full_path = os.path.join(current_script_dir, file)
                         
                         if os.path.exists(full_path):
                             success, msg = upload_csv_to_supabase(table, full_path, unique_cols=keys)
                         else:
+                            # Warning only (some files like global_settings might not exist locally yet)
                             success, msg = False, f"File not found for upload: {full_path}"
                         
                         if success:
@@ -4211,53 +4225,102 @@ elif menu == "Admin Panel":
                 st.warning("No shift or room invigilator assignments found. Please make assignments first.")
                 st.stop()
             
+            # --- STEP 1: Calculate Eligible Members FIRST ---
+            all_eligible_members = []
+            for _, row in shift_assignments_df.iterrows():
+                for role_col in ['senior_center_superintendent', 'center_superintendent', 'assistant_center_superintendent', 'permanent_invigilator', 'assistant_permanent_invigilator', 'invigilator']:
+                    if role_col in row and isinstance(row[role_col], list):
+                        # Normalize names here immediately (strip spaces)
+                        cleaned_names = [str(n).strip() for n in row[role_col] if n]
+                        all_eligible_members.extend(cleaned_names)
+            all_eligible_members = sorted(list(set(all_eligible_members))) # Unique names
+
             # Get unique classes from the timetable for multi-selection
             all_classes_in_timetable = sorted(timetable_df_for_remuneration['Class'].dropna().astype(str).str.strip().unique().tolist())
             
             st.markdown("---")
             st.subheader("Select Classes for Bill Generation")
-            st.info("Select specific classes to include in the remuneration calculation for shift-based roles. Double shift duty conveyance will still be considered for all shifts worked.")
+            st.info("Select specific classes to load saved prep/closing days for that batch.")
             
-            # Callback function to handle class selection change
-            def on_class_selection_change():
-                st.session_state.selected_classes_for_bill_state = st.session_state.selected_classes_for_bill_multiselect
-                
-                # Load all assignments from Supabase
-                loaded_prep_closing_assignments_raw = load_prep_closing_assignments_from_supabase()
+            if 'previous_selected_classes' not in st.session_state:
+                st.session_state.previous_selected_classes = st.session_state.get('selected_classes_for_bill_state', [])
 
-                # Filter the loaded data based on the new selection
-                prep_closing_assignments = {}
-                current_selected_classes_set = set(st.session_state.selected_classes_for_bill_state)
-
-                for name, data in loaded_prep_closing_assignments_raw.items():
-                    loaded_selected_classes_set = set(data.get('selected_classes', []))
-                    if current_selected_classes_set == loaded_selected_classes_set:
-                        prep_closing_assignments[name] = data
-                
-                # Reset and pre-populate the current input state
-                st.session_state.current_prep_closing_input = {}
-                for member in all_eligible_members:
-                    st.session_state.current_prep_closing_input[member] = {
-                        'role': prep_closing_assignments.get(member, {}).get('role', 'senior_center_superintendent'),
-                        'prep_days': ", ".join(prep_closing_assignments.get(member, {}).get('prep_days', [])),
-                        'closing_days': ", ".join(prep_closing_assignments.get(member, {}).get('closing_days', []))
-                    }
-                    
-            # The multiselect widget now has a callback that triggers when its value changes
             selected_classes_for_bill = st.multiselect(
                 "Select Classes (leave empty for all classes)",
                 options=all_classes_in_timetable,
-                default=st.session_state.get('selected_classes_for_bill_state', all_classes_in_timetable),
-                key="selected_classes_for_bill_multiselect",
-                on_change=on_class_selection_change # This is the crucial addition
+                default=st.session_state.get('selected_classes_for_bill_state', []),
+                key="selected_classes_for_bill_multiselect"
             )
-            # The session state is now updated by the callback, so we don't need this line anymore.
-            # st.session_state.selected_classes_for_bill_state = selected_classes_for_bill
+
+            # --- STEP 2: Load Data with Robust Matching ---
+            # Check if selection changed OR if we haven't loaded data yet (empty input dict)
+            data_needs_loading = (selected_classes_for_bill != st.session_state.previous_selected_classes) or \
+                                 (not st.session_state.get('current_prep_closing_input'))
+
+            if data_needs_loading:
+                st.session_state.previous_selected_classes = selected_classes_for_bill
+                st.session_state.selected_classes_for_bill_state = selected_classes_for_bill
+                
+                if 'current_prep_closing_input' not in st.session_state:
+                    st.session_state.current_prep_closing_input = {}
+
+                # 1. Fetch ALL rows
+                response = supabase.table("prep_closing_assignments").select("*").execute()
+                
+                # 2. Filter data for CURRENT class selection
+                matched_data_by_name = {}
+                current_selected_set = set(selected_classes_for_bill)
+                
+                # Debug lists
+                debug_found_in_db = []
+
+                if response.data:
+                    for row in response.data:
+                        row_classes = json.loads(row.get('selected_classes')) if row.get('selected_classes') else []
+                        
+                        # Match sets (handling empty vs None)
+                        if set(row_classes) == current_selected_set:
+                            # Normalize DB name too
+                            db_name = str(row.get('name')).strip()
+                            matched_data_by_name[db_name] = {
+                                'role': row.get('role', 'senior_center_superintendent'),
+                                'prep_days': json.loads(row.get('prep_days')) if row.get('prep_days') else [],
+                                'closing_days': json.loads(row.get('closing_days')) if row.get('closing_days') else []
+                            }
+                            debug_found_in_db.append(db_name)
+
+                # 3. Map to Inputs
+                for member in all_eligible_members:
+                    # member is already stripped/normalized in Step 1
+                    if member in matched_data_by_name:
+                        data = matched_data_by_name[member]
+                        st.session_state.current_prep_closing_input[member] = {
+                            'role': data['role'],
+                            'prep_days': ", ".join(data['prep_days']),
+                            'closing_days': ", ".join(data['closing_days'])
+                        }
+                    else:
+                        st.session_state.current_prep_closing_input[member] = {
+                            'role': 'senior_center_superintendent',
+                            'prep_days': '',
+                            'closing_days': ''
+                        }
+                
+                # Store debug info in session state to persist after rerun
+                st.session_state.debug_db_names = debug_found_in_db
+                st.session_state.debug_eligible_members = all_eligible_members
+                
+                st.rerun()
+
+            # --- Troubleshooting Section ---
+            with st.expander("🛠️ Troubleshooting: Data Loading Status"):
+                st.write(f"**Eligible Members (from assignments):** {st.session_state.get('debug_eligible_members', [])}")
+                st.write(f"**Found in Database for this Class Selection:** {st.session_state.get('debug_db_names', [])}")
+                st.info("If a name is in the 'Database' list but not loading below, check for spelling differences.")
 
             st.markdown("---")
             st.subheader("Manual Remuneration Rates (per shift/day)")
 
-            # Define default rates and allow user to input
             manual_rates = {
                 'senior_center_superintendent_rate': st.number_input("Senior Center Superintendent Rate (Rs./day - no conveyance on exam days)", min_value=0, value=200, key="scs_rate"),
                 'center_superintendent_rate': st.number_input("Center Superintendent Rate (Rs.)", min_value=0, value=175, key="cs_rate"),
@@ -4273,37 +4336,10 @@ elif menu == "Admin Panel":
 
             st.markdown("---")
             st.subheader("Preparation and Closing Day Assignments")
-            st.info("Specify preparation and closing days for eligible staff with their specific roles. These days will also be checked for holidays for additional conveyance.")
-
-            all_eligible_members = []
-            # Collect all unique names from shift assignments for eligible roles
-            for _, row in shift_assignments_df.iterrows():
-                for role_col in ['senior_center_superintendent', 'center_superintendent', 'assistant_center_superintendent', 'permanent_invigilator', 'assistant_permanent_invigilator', 'invigilator']:
-                    if role_col in row and isinstance(row[role_col], list):
-                        all_eligible_members.extend(row[role_col])
-            all_eligible_members = sorted(list(set(all_eligible_members))) # Get unique names
-
-            # Load previously saved prep_closing_assignments based on current selected_classes_for_bill
-            loaded_prep_closing_assignments_raw = load_prep_closing_assignments_from_supabase()
             
-            # Filter loaded assignments based on the currently selected classes
-            # An assignment is relevant if its selected_classes exactly match the current selected_classes_for_bill
-            prep_closing_assignments = {}
-            current_selected_classes_set = set(selected_classes_for_bill)
-
-            for name, data in loaded_prep_closing_assignments_raw.items():
-                loaded_selected_classes_set = set(data.get('selected_classes', []))
-                if current_selected_classes_set == loaded_selected_classes_set:
-                    prep_closing_assignments[name] = data
-
-            # Role options for dropdown
             role_options = [
-                'senior_center_superintendent',
-                'center_superintendent', 
-                'assistant_center_superintendent',
-                'permanent_invigilator',
-                'assistant_permanent_invigilator',
-                'invigilator'
+                'senior_center_superintendent', 'center_superintendent', 'assistant_center_superintendent',
+                'permanent_invigilator', 'assistant_permanent_invigilator', 'invigilator'
             ]
             
             role_display_names = {
@@ -4316,28 +4352,25 @@ elif menu == "Admin Panel":
             }
 
             if all_eligible_members:
-                # Store dynamic assignment data in session state
+                # Ensure session state is populated if we bypassed the loader (e.g. on simple re-renders)
                 if 'current_prep_closing_input' not in st.session_state:
-                    st.session_state.current_prep_closing_input = {}
+                     st.session_state.current_prep_closing_input = {}
                 
-                # Pre-populate session state from loaded data, but only if it's not already filled
                 for member in all_eligible_members:
                     if member not in st.session_state.current_prep_closing_input:
-                        st.session_state.current_prep_closing_input[member] = {
-                            'role': prep_closing_assignments.get(member, {}).get('role', 'senior_center_superintendent'), # Default role
-                            'prep_days': ", ".join(prep_closing_assignments.get(member, {}).get('prep_days', [])),
-                            'closing_days': ", ".join(prep_closing_assignments.get(member, {}).get('closing_days', []))
-                        }
+                         st.session_state.current_prep_closing_input[member] = {'role': 'senior_center_superintendent', 'prep_days': '', 'closing_days': ''}
 
                 for member in all_eligible_members:
                     st.markdown(f"**{member}**")
                     
-                    # Role selection for this member
+                    current_role = st.session_state.current_prep_closing_input[member]['role']
+                    role_index = role_options.index(current_role) if current_role in role_options else 0
+
                     selected_role = st.selectbox(
                         f"Select Role for {member}",
                         options=role_options,
                         format_func=lambda x: role_display_names[x],
-                        index=role_options.index(st.session_state.current_prep_closing_input[member]['role']) if st.session_state.current_prep_closing_input[member]['role'] in role_options else 0,
+                        index=role_index,
                         key=f"{member}_role_selection"
                     )
                     st.session_state.current_prep_closing_input[member]['role'] = selected_role
@@ -4359,21 +4392,20 @@ elif menu == "Admin Panel":
                 st.info("No eligible team members found for preparation/closing day assignments.")
 
             st.markdown("---")
-            # Save button for prep/closing assignments
-            if st.button("💾 Save Prep/Closing Assignments"):
+            # Added unique key to prevent DuplicateElementId error
+            if st.button("💾 Save Prep/Closing Assignments", key="save_prep_btn"):
                 data_to_save_to_db = []
                 for member, inputs in st.session_state.current_prep_closing_input.items():
                     prep_days_list = [d.strip() for d in inputs['prep_days'].split(',') if d.strip()]
                     closing_days_list = [d.strip() for d in inputs['closing_days'].split(',') if d.strip()]
 
-                    # Validate dates before saving
                     valid_prep_days = []
                     for d in prep_days_list:
                         try:
                             datetime.datetime.strptime(d, '%d-%m-%Y')
                             valid_prep_days.append(d)
                         except ValueError:
-                            st.warning(f"Invalid date format for {d} in preparation days for {member}. Skipping this date.")
+                            st.warning(f"Invalid date format for {d} in prep days. Skipping.")
                     
                     valid_closing_days = []
                     for d in closing_days_list:
@@ -4381,14 +4413,15 @@ elif menu == "Admin Panel":
                             datetime.datetime.strptime(d, '%d-%m-%Y')
                             valid_closing_days.append(d)
                         except ValueError:
-                            st.warning(f"Invalid date format for {d} in closing days for {member}. Skipping this date.")
+                            st.warning(f"Invalid date format for {d} in closing days. Skipping.")
 
+                    # Save stripped name
                     data_to_save_to_db.append({
-                        'name': member,
+                        'name': member.strip(),
                         'role': inputs['role'],
                         'prep_days': valid_prep_days,
                         'closing_days': valid_closing_days,
-                        'selected_classes': selected_classes_for_bill # Store the classes for which this assignment applies
+                        'selected_classes': selected_classes_for_bill
                     })
                 
                 success, message = save_prep_closing_assignments_to_supabase(data_to_save_to_db)
@@ -4396,16 +4429,13 @@ elif menu == "Admin Panel":
                     st.success(message)
                 else:
                     st.error(message)
-                st.rerun() # Rerun to ensure data is reloaded from DB for consistency
-
+                st.rerun()
 
             st.markdown("---")
             st.subheader("Holiday dates for Conveyance Allowance")
-            st.info("Holiday conveyance allowance (Rs. 100) will be given for preparation/closing days that fall on holidays.")
             
-            # Load holiday dates from Supabase for initial value
             loaded_holiday_dates = load_global_setting_from_supabase('holiday_dates')
-            if loaded_holiday_dates:
+            if loaded_holiday_dates and not st.session_state.get('holiday_dates_input_state'):
                 st.session_state.holiday_dates_input_state = ", ".join(loaded_holiday_dates)
 
             holiday_dates_input = st.text_input(
@@ -4413,50 +4443,39 @@ elif menu == "Admin Panel":
                 value=st.session_state.holiday_dates_input_state,
                 key="holiday_dates_input"
             )
-            st.session_state.holiday_dates_input_state = holiday_dates_input # Update session state
+            st.session_state.holiday_dates_input_state = holiday_dates_input
 
             holiday_dates = [d.strip() for d in holiday_dates_input.split(',') if d.strip()]
-            
             valid_holiday_dates = []
             for d in holiday_dates:
                 try:
                     datetime.datetime.strptime(d, '%d-%m-%Y')
                     valid_holiday_dates.append(d)
                 except ValueError:
-                    st.warning(f"Invalid date format for {d} in holiday dates. Please use DD-MM-YYYY.")
+                    pass
             holiday_dates = valid_holiday_dates
 
-            # New: Save Holiday dates button
-            if st.button("💾 Save Holiday dates"):
+            # Added unique key here too
+            if st.button("💾 Save Holiday dates", key="save_holiday_btn"):
                 success, message = save_global_setting_to_supabase('holiday_dates', holiday_dates)
                 if success:
                     st.success(message)
                 else:
                     st.error(message)
-                st.rerun() # Rerun to ensure the UI updates with the saved value
+                st.rerun()
 
-            # Display conveyance rules
             st.markdown("---")
             st.subheader("📋 Conveyance Rules Summary")
-            st.info("""
-            **Senior Center Superintendent:** Rs. 200/day total (not per shift), no conveyance on exam days, Rs. 100 conveyance only on prep/closing days if they are holidays.
-            
-            **Other Team Members (excluding Class 3/4 workers):** Rs. 100 conveyance only for evening shifts when worked both morning and evening on the same exam day, Rs. 100 conveyance on prep/closing days if they are holidays.
-            
-            **Class 3/4 Workers:** No conveyance allowance.
-            
-            **Note:** Preparation and closing day allowances are given per person per role to avoid duplicates when someone works multiple roles.
-            """)
+            st.info("Rules: SCS gets Rs 200/day (no exam day conveyance). Others Rs 100 evening conveyance. Holiday conveyance applies to prep/closing days.")
 
-            if st.button("Generate Remuneration Bills"):
+            # Added unique key here too
+            if st.button("Generate Remuneration Bills", key="gen_bills_btn"):
                 if shift_assignments_df.empty:
-                    st.warning("shift assignments data is required to calculate remuneration.")
+                    st.warning("shift assignments data is required.")
                 elif assigned_seats_df_for_remuneration.empty:
-                    st.warning("Assigned seats data is required to calculate remuneration for Class 3/4 workers.")
+                    st.warning("Assigned seats data is required.")
                 else:
                     with st.spinner("Calculating remuneration..."):
-                        # Re-parse prep_closing_assignments from the current session state input values
-                        # This ensures the calculation uses the latest user input, not just the loaded data
                         dynamic_prep_closing_assignments_for_calc = {}
                         for member, inputs in st.session_state.current_prep_closing_input.items():
                             prep_days_list_calc = [d.strip() for d in inputs['prep_days'].split(',') if d.strip()]
@@ -4468,15 +4487,14 @@ elif menu == "Admin Panel":
                                 'selected_classes': selected_classes_for_bill
                             }
 
-
                         df_individual_bills, df_role_summary_matrix, df_class_3_4_final_bills = calculate_remuneration(
                             shift_assignments_df,
                             room_invigilator_assignments_df,
                             timetable_df_for_remuneration, 
                             assigned_seats_df_for_remuneration,
                             manual_rates,
-                            dynamic_prep_closing_assignments_for_calc, # Pass dynamic input here
-                            holiday_dates, # Ensure this is the valid_holiday_dates from the input
+                            dynamic_prep_closing_assignments_for_calc, 
+                            holiday_dates, 
                             selected_classes_for_bill
                         )
 
@@ -4501,7 +4519,6 @@ elif menu == "Admin Panel":
                         else:
                             st.info("No Class 3 & 4 worker bills generated.")
                         
-                        # Save and Download Bills
                         if not df_individual_bills.empty or not df_role_summary_matrix.empty or not df_class_3_4_final_bills.empty:
                             excel_file_buffer, excel_filename = save_bills_to_excel(
                                 df_individual_bills_with_total, 
@@ -4517,8 +4534,6 @@ elif menu == "Admin Panel":
                             st.success(f"Remuneration bills generated and ready for download as '{excel_filename}'.")
                         else:
                             st.warning("No bills were generated to save.")
-
-
 
 
 
