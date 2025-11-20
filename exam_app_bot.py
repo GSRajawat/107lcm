@@ -180,7 +180,7 @@ ASSIGNED_SEATS_FILE = "assigned_seats.csv"
 ATTESTATION_DATA_FILE = "attestation_data_combined.csv"
 COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv"
 
-# --- ADD THESE TWO LINES ---
+# --- NEW: Add these lines so the app knows where to store them ---
 PREP_CLOSING_ASSIGNMENTS_FILE = "prep_closing_assignments.csv"
 GLOBAL_SETTINGS_FILE = "global_settings.csv"
 
@@ -196,7 +196,6 @@ if 'holiday_dates_input_state' not in st.session_state:
 
 # --- The rest of the file remains the same ---
 
-# CORRECTED: upload_csv_to_supabase function
 def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
     try:
         df = pd.read_csv(csv_path)
@@ -204,133 +203,83 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
 
         # Column name mapping from CSV headers to database columns
         column_mappings = {
-            # Common mappings
-            'Roll Number': 'roll_number',
-            'Paper Code': 'paper_code',
-            'Paper Name': 'paper_name',
-            'Room Number': 'room_number',
-            'Seat Number': 'seat_number',
-            'date': 'date',
-            'shift': 'shift',
-            'SN': 'sn',
-            'Time': 'time',
-            'Class': 'class',
-            'Paper': 'paper',
-            'Name': 'name',
-
-            # Sitting plan specific
-            'Roll Number 1': 'roll_number_1',
-            'Roll Number 2': 'roll_number_2',
-            'Roll Number 3': 'roll_number_3',
-            'Roll Number 4': 'roll_number_4',
-            'Roll Number 5': 'roll_number_5',
-            'Roll Number 6': 'roll_number_6',
-            'Roll Number 7': 'roll_number_7',
-            'Roll Number 8': 'roll_number_8',
-            'Roll Number 9': 'roll_number_9',
-            'Roll Number 10': 'roll_number_10',
-            'Mode': 'mode',
-            'Type': 'type',
-            'Seat Number 1': 'seat_number_1',
-            'Seat Number 2': 'seat_number_2',
-            'Seat Number 3': 'seat_number_3',
-            'Seat Number 4': 'seat_number_4',
-            'Seat Number 5': 'seat_number_5',
-            'Seat Number 6': 'seat_number_6',
-            'Seat Number 7': 'seat_number_7',
-            'Seat Number 8': 'seat_number_8',
-            'Seat Number 9': 'seat_number_9',
-            'Seat Number 10': 'seat_number_10',
-
-            # Attestation specific MAPPINGS ADDED/UPdateD HERE
-            'Enrollment Number': 'enrollment_number',
-            'Session': 'session',
-            'Regular/Backlog': 'regular_backlog',
-            'Father\'s Name': 'father_name',
-            'Mother\'s Name': 'mother_name',
-            'Gender': 'gender',
-            'Exam Name': 'exam_name',
-            'Exam Centre': 'exam_centre',
-            'College Name': 'college_name',
-            'Address': 'address',
-            'Paper 1': 'paper_1',
-            'Paper 2': 'paper_2',
-            'Paper 3': 'paper_3',
-            'Paper 4': 'paper_4',
-            'Paper 5': 'paper_5',
-            'Paper 6': 'paper_6',
-            'Paper 7': 'paper_7',
-            'Paper 8': 'paper_8',
-            'Paper 9': 'paper_9',
-            'Paper 10': 'paper_10',
-            # Other specific mappings
-            'report_key': 'report_key',
-            'room_num': 'room_num',
-            'absent_roll_numbers': 'absent_roll_numbers',
-            'ufm_roll_numbers': 'ufm_roll_numbers',
+            'Roll Number': 'roll_number', 'Paper Code': 'paper_code', 'Paper Name': 'paper_name',
+            'Room Number': 'room_number', 'Seat Number': 'seat_number', 'date': 'date',
+            'shift': 'shift', 'SN': 'sn', 'Time': 'time', 'Class': 'class', 'Paper': 'paper', 'Name': 'name',
+            'Roll Number 1': 'roll_number_1', 'Roll Number 2': 'roll_number_2',
+            'Roll Number 3': 'roll_number_3', 'Roll Number 4': 'roll_number_4',
+            'Roll Number 5': 'roll_number_5', 'Roll Number 6': 'roll_number_6',
+            'Roll Number 7': 'roll_number_7', 'Roll Number 8': 'roll_number_8',
+            'Roll Number 9': 'roll_number_9', 'Roll Number 10': 'roll_number_10',
+            'Mode': 'mode', 'Type': 'type',
+            'Seat Number 1': 'seat_number_1', 'Seat Number 2': 'seat_number_2',
+            'Seat Number 3': 'seat_number_3', 'Seat Number 4': 'seat_number_4',
+            'Seat Number 5': 'seat_number_5', 'Seat Number 6': 'seat_number_6',
+            'Seat Number 7': 'seat_number_7', 'Seat Number 8': 'seat_number_8',
+            'Seat Number 9': 'seat_number_9', 'Seat Number 10': 'seat_number_10',
+            'Enrollment Number': 'enrollment_number', 'Session': 'session',
+            'Regular/Backlog': 'regular_backlog', 'Father\'s Name': 'father_name',
+            'Mother\'s Name': 'mother_name', 'Gender': 'gender',
+            'Exam Name': 'exam_name', 'Exam Centre': 'exam_centre',
+            'College Name': 'college_name', 'Address': 'address',
+            'Paper 1': 'paper_1', 'Paper 2': 'paper_2', 'Paper 3': 'paper_3',
+            'Paper 4': 'paper_4', 'Paper 5': 'paper_5', 'Paper 6': 'paper_6',
+            'Paper 7': 'paper_7', 'Paper 8': 'paper_8', 'Paper 9': 'paper_9', 'Paper 10': 'paper_10',
+            'report_key': 'report_key', 'room_num': 'room_num',
+            'absent_roll_numbers': 'absent_roll_numbers', 'ufm_roll_numbers': 'ufm_roll_numbers',
             'invigilators': 'invigilators',
             'senior_center_superintendent': 'senior_center_superintendent',
             'center_superintendent': 'center_superintendent',
             'assistant_center_superintendent': 'assistant_center_superintendent',
             'permanent_invigilator': 'permanent_invigilator',
             'assistant_permanent_invigilator': 'assistant_permanent_invigilator',
-            'class_3_worker': 'class_3_worker',
-            'class_4_worker': 'class_4_worker'
+            'class_3_worker': 'class_3_worker', 'class_4_worker': 'class_4_worker',
+            # NEW MAPPINGS
+            'prep_days': 'prep_days', 'closing_days': 'closing_days',
+            'selected_classes': 'selected_classes', 'setting_key': 'setting_key',
+            'setting_value': 'setting_value'
         }
         
-        # Rename columns according to mapping
         df.rename(columns=column_mappings, inplace=True)
-
-        # Clean missing values and handle NaN
         df = df.replace(r'^\s*$', None, regex=True)
         df = df.replace([np.inf, -np.inf], None)
 
-        # Convert all columns to handle NaN properly
         for col in df.columns:
-            df[col] = df[col].apply(lambda x: None if pd.isna(x) or
-                                                 (isinstance(x, float) and not np.isfinite(x)) or
-                                                 str(x).strip() == '' else x)
+            df[col] = df[col].apply(lambda x: None if pd.isna(x) or (isinstance(x, float) and not np.isfinite(x)) or str(x).strip() == '' else x)
         
-        # Handle date format conversion (DD-MM-YYYY to YYYY-MM-DD)
         if 'date' in df.columns:
             def convert_date_format(date_str):
                 if pd.notna(date_str) and isinstance(date_str, str) and len(date_str.split('-')) == 3:
                     try:
-                        # Assuming DD-MM-YYYY format from the CSV, convert to YYYY-MM-DD
                         return datetime.datetime.strptime(date_str, '%d-%m-%Y').strftime('%Y-%m-%d')
                     except ValueError:
-                        # If the format is not as expected, return the original string
                         return date_str
                 return date_str
-
             df['date'] = df['date'].apply(convert_date_format)
 
-        # Handle JSON fields (arrays stored as strings)
-        json_fields = ['absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
-                     'senior_center_superintendent', 'center_superintendent',
-                     'assistant_center_superintendent', 'permanent_invigilator',
-                     'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker']
+        # JSON fields handling (Added new fields)
+        json_fields = [
+            'absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
+            'senior_center_superintendent', 'center_superintendent',
+            'assistant_center_superintendent', 'permanent_invigilator',
+            'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker',
+            'prep_days', 'closing_days', 'selected_classes', 'setting_value'
+        ]
         
         for field in json_fields:
             if field in df.columns:
                 def parse_json_field(x):
                     if pd.notna(x) and isinstance(x, str) and x.strip():
                         try:
-                            # Safely evaluate if it's a list string
                             if x.strip().startswith('['):
                                 return ast.literal_eval(x)
-                            # If it's a single value, wrap it in a list
                             return [x.strip()]
                         except (ValueError, SyntaxError):
-                            # Fallback if literal_eval fails
                             return [x.strip()]
                     return None
                 df[field] = df[field].apply(parse_json_field)
 
-        # Convert numeric fields properly
-        numeric_fields = ['room_number', 'seat_number', 'room_num', 'sn'] + \
-                         [f'seat_number_{i}' for i in range(1, 11)]
-
+        numeric_fields = ['room_number', 'seat_number', 'room_num', 'sn'] + [f'seat_number_{i}' for i in range(1, 11)]
         for field in numeric_fields:
             if field in df.columns:
                 df[field] = pd.to_numeric(df[field], errors='coerce')
@@ -339,10 +288,7 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
         if df.empty:
             return False, f"⚠️ `{csv_path}` is empty."
 
-        # Convert to records and ensure all NaN/None values are properly handled
         records = df.to_dict(orient='records')
-
-        # Final cleanup of records
         cleaned_records = []
         for record in records:
             cleaned_record = {}
@@ -359,10 +305,8 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
                     cleaned_record[key] = value
             cleaned_records.append(cleaned_record)
 
-        # Upload in batches to handle large datasets
         batch_size = 100
         total_uploaded = 0
-
         for i in range(0, len(cleaned_records), batch_size):
             batch = cleaned_records[i:i + batch_size]
             supabase.table(table_name).insert(batch).execute()
@@ -373,25 +317,6 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
     except Exception as e:
         return False, f"❌ Error uploading to `{table_name}`: {str(e)}"
 
-
-# --- NEW/UPDATED HELPER FUNCTIONS ---
-
-def _format_roll_number(roll):
-    """
-    Converts any roll number input to a clean, stripped string,
-    removing any trailing '.0' from Excel/float conversions.
-    """
-    if pd.isna(roll):
-        return ""  # Return empty string for NaNs
-    
-    # Convert to string, strip whitespace, and remove trailing '.0'
-    roll_str = str(roll).strip()
-    if roll_str.endswith('.0'):
-        roll_str = roll_str[:-2]
-        
-    return roll_str
-
-
 # MODIFIED: download_supabase_to_csv (to handle API exceptions)
 def download_supabase_to_csv(table_name, filename):
     all_data = []
@@ -400,23 +325,15 @@ def download_supabase_to_csv(table_name, filename):
 
     try:
         while True:
-            # Use supabase.from_ for explicit table selection with pagination
             response = supabase.from_(table_name).select("*").limit(limit).offset(offset).execute()
-            
-            # If no data is returned, we have reached the end of the table
             if not response.data:
                 break
-                
             all_data.extend(response.data)
-            
-            # If the number of records returned is less than the limit, we've reached the end
             if len(response.data) < limit:
                 break
-            
             offset += limit
     
     except Exception as e:
-        # Catch any API exceptions (e.g., failed request, bad token)
         traceback.print_exc()
         return False, f"❌ Supabase API Error for '{table_name}': {e}"
     
@@ -424,59 +341,49 @@ def download_supabase_to_csv(table_name, filename):
         return True, f"⚠️ No data found in table `{table_name}`. An empty file has been created."
 
     df = pd.DataFrame(all_data)
-    
-    # Remove auto-generated 'id' and 'created_at' columns if they exist
     columns_to_drop = ['id', 'created_at']
     df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
     
-    # Reverse column name mapping (database columns back to CSV headers)
     reverse_column_mappings = {
         'roll_number': 'Roll Number', 'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
         'room_number': 'Room Number', 'seat_number': 'Seat Number', 'date': 'date',
-        'shift': 'shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper',
-        'name': 'Name',
+        'shift': 'shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper', 'name': 'Name',
         'roll_number_1': 'Roll Number 1', 'roll_number_2': 'Roll Number 2',
         'roll_number_3': 'Roll Number 3', 'Roll Number 4': 'Roll Number 4',
         'roll_number_5': 'Roll Number 5', 'roll_number_6': 'Roll Number 6',
-        'roll_number_7': 'Roll Number 7', 'roll_number_8': 'Roll Number 8',
-        'roll_number_9': 'Roll Number 9', 'roll_number_10': 'Roll Number 10',
+        'roll_number_7': 'Roll Number 7', 'Roll Number 8': 'Roll Number 8',
+        'roll_number_9': 'Roll Number 9', 'Roll Number 10': 'Roll Number 10',
         'mode': 'Mode', 'type': 'Type',
         'seat_number_1': 'Seat Number 1', 'seat_number_2': 'Seat Number 2',
         'seat_number_3': 'Seat Number 3', 'seat_number_4': 'Seat Number 4',
         'seat_number_5': 'Seat Number 5', 'seat_number_6': 'Seat Number 6',
         'seat_number_7': 'Seat Number 7', 'seat_number_8': 'Seat Number 8',
         'seat_number_9': 'Seat Number 9', 'seat_number_10': 'Seat Number 10',
-        'enrollment_number': 'Enrollment Number',
-        'session': 'Session',
-        'regular_backlog': 'Regular/Backlog',
-        'father_name': 'Father\'s Name',
-        'mother_name': 'Mother\'s Name',
-        'gender': 'Gender',
-        'exam_name': 'Exam Name',
-        'exam_centre': 'Exam Centre',
-        'college_name': 'College Name',
-        'address': 'Address',
+        'enrollment_number': 'Enrollment Number', 'session': 'Session',
+        'regular_backlog': 'Regular/Backlog', 'father_name': 'Father\'s Name',
+        'mother_name': 'Mother\'s Name', 'gender': 'Gender',
+        'exam_name': 'Exam Name', 'exam_centre': 'Exam Centre',
+        'college_name': 'College Name', 'address': 'Address',
         'paper_1': 'Paper 1', 'paper_2': 'Paper 2', 'paper_3': 'Paper 3',
         'paper_4': 'Paper 4', 'paper_5': 'Paper 5', 'paper_6': 'Paper 6',
-        'paper_7': 'Paper 7', 'paper_8': 'Paper 8', 'paper_9': 'Paper 9',
-        'paper_10': 'Paper 10',
-        'report_key': 'report_key',
-        'room_num': 'room_num',
-        'absent_roll_numbers': 'absent_roll_numbers',
-        'ufm_roll_numbers': 'ufm_roll_numbers',
+        'paper_7': 'Paper 7', 'paper_8': 'Paper 8', 'paper_9': 'Paper 9', 'paper_10': 'Paper 10',
+        'report_key': 'report_key', 'room_num': 'room_num',
+        'absent_roll_numbers': 'absent_roll_numbers', 'ufm_roll_numbers': 'ufm_roll_numbers',
         'invigilators': 'invigilators',
         'senior_center_superintendent': 'senior_center_superintendent',
         'center_superintendent': 'center_superintendent',
         'assistant_center_superintendent': 'assistant_center_superintendent',
         'permanent_invigilator': 'permanent_invigilator',
         'assistant_permanent_invigilator': 'assistant_permanent_invigilator',
-        'class_3_worker': 'class_3_worker',
-        'class_4_worker': 'class_4_worker'
+        'class_3_worker': 'class_3_worker', 'class_4_worker': 'class_4_worker',
+        # NEW MAPPINGS
+        'prep_days': 'prep_days', 'closing_days': 'closing_days',
+        'selected_classes': 'selected_classes', 'setting_key': 'setting_key',
+        'setting_value': 'setting_value'
     }
     actual_reverse_column_mappings = {k: v for k, v in reverse_column_mappings.items() if k in df.columns}
     df.rename(columns=actual_reverse_column_mappings, inplace=True)
     
-    # Handle date format conversion (YYYY-MM-DD back to DD-MM-YYYY)
     if 'date' in df.columns:
         def format_date_for_csv(d_str):
             if pd.isna(d_str) or not isinstance(d_str, str) or d_str.strip() == '':
@@ -488,12 +395,13 @@ def download_supabase_to_csv(table_name, filename):
                 return d_str
         df['date'] = df['date'].apply(format_date_for_csv)
     
-    # Handle JSON fields back to string format
+    # JSON fields handling
     json_fields_to_str = [
         'absent_roll_numbers', 'ufm_roll_numbers', 'invigilators',
         'senior_center_superintendent', 'center_superintendent',
         'assistant_center_superintendent', 'permanent_invigilator', 
-        'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker'
+        'assistant_permanent_invigilator', 'class_3_worker', 'class_4_worker',
+        'prep_days', 'closing_days', 'selected_classes', 'setting_value'
     ]
     
     for field in json_fields_to_str:
@@ -502,8 +410,8 @@ def download_supabase_to_csv(table_name, filename):
     
     df = df.fillna('')
     df.to_csv(filename, index=False)
-    
     return True, f"✅ Downloaded {len(df)} rows from `{table_name}` to `{filename}`."
+
 
 # --- NEW FUNCTION: Download attestation_data_combined to parent folder ---
 def download_attestation_data_to_parent_folder():
@@ -525,36 +433,74 @@ def download_attestation_data_to_parent_folder():
     
     return success, message
 
+# --- Helper Functions (Place these BEFORE load_data) ---
+
+def _format_roll_number(roll):
+    """
+    Converts any roll number input to a clean, stripped string,
+    removing any trailing '.0' from Excel/float conversions.
+    """
+    if pd.isna(roll):
+        return ""  # Return empty string for NaNs
+    
+    # Convert to string, strip whitespace, and remove trailing '.0'
+    roll_str = str(roll).strip()
+    if roll_str.endswith('.0'):
+        roll_str = roll_str[:-2]
+        
+    return roll_str
+
+def _format_paper_code(code):
+    """
+    Converts any paper code input to a clean, stripped string,
+    removing any trailing '.0' from Excel/float conversions.
+    """
+    if pd.isna(code):
+        return ""  # Return empty string for NaNs
+    
+    # Convert to string, strip whitespace, and remove trailing '.0'
+    code_str = str(code).strip()
+    if code_str.endswith('.0'):
+        code_str = code_str[:-2]
+        
+    return code_str
+
+
+# --- Your UPDATED load_data Function ---
+
 def load_data():
     """
     Loads all required CSV data from local files, downloading from Supabase if missing.
-    UPDATED: Forces download of prep_closing_assignments and global_settings to prevent data loss on restart.
+    UPDATED: Iterates through ALL system tables to ensure local CSVs are always in sync with Supabase.
     """
     sitting_plan_df = pd.DataFrame()
     timetable_df = pd.DataFrame()
     assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
     attestation_df = pd.DataFrame()
 
-    # --- 1. CRITICAL: Force Download of ALL Supabase Tables ---
-    # This ensures that when the app restarts (next day), it fetches your saved data.
+    # --- 1. Sync ALL Tables from Supabase ---
     tables_to_sync = {
         "timetable": TIMETABLE_FILE,
         "sitting_plan": SITTING_PLAN_FILE,
         "assigned_seats": ASSIGNED_SEATS_FILE,
-        "prep_closing_assignments": PREP_CLOSING_ASSIGNMENTS_FILE, # FIX: Added this
-        "global_settings": GLOBAL_SETTINGS_FILE,                   # FIX: Added this
-        "shift_assignments": SHIFT_ASSIGNMENTS_FILE,               
-        "room_invigilator_assignments": ROOM_INVIGILATORS_FILE,    
-        "exam_team_members": EXAM_TEAM_MEMBERS_FILE,               
-        "cs_reports": CS_REPORTS_FILE                              
+        "prep_closing_assignments": PREP_CLOSING_ASSIGNMENTS_FILE,
+        "global_settings": GLOBAL_SETTINGS_FILE,
+        "shift_assignments": SHIFT_ASSIGNMENTS_FILE,
+        "room_invigilator_assignments": ROOM_INVIGILATORS_FILE,
+        "exam_team_members": EXAM_TEAM_MEMBERS_FILE,
+        "cs_reports": CS_REPORTS_FILE,
+        "attestation_data_combined": ATTESTATION_DATA_FILE
     }
 
     for table_name, file_path in tables_to_sync.items():
-        # Check if file is missing or empty, then download
         if not os.path.exists(file_path) or os.stat(file_path).st_size == 0:
-            download_supabase_to_csv(table_name, file_path)
+            try:
+                # Silently try to download everything on startup
+                download_supabase_to_csv(table_name, file_path)
+            except Exception:
+                pass # Ignore errors during silent sync
 
-    # --- 2. Load DataFrames for the App ---
+    # --- 2. Load DataFrames for the App Session ---
     
     # Load Sitting Plan
     if os.path.exists(SITTING_PLAN_FILE) and os.stat(SITTING_PLAN_FILE).st_size > 0:
@@ -563,6 +509,7 @@ def load_data():
             sitting_plan_df = pd.read_csv(SITTING_PLAN_FILE, dtype=roll_cols)
             sitting_plan_df.columns = sitting_plan_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
             
+            # Use helper functions
             if 'Paper Code' in sitting_plan_df.columns:
                 sitting_plan_df['Paper Code'] = sitting_plan_df['Paper Code'].apply(_format_paper_code)
             
@@ -630,10 +577,12 @@ def load_data():
     current_script_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
     attestation_file_in_parent = os.path.join(parent_dir, ATTESTATION_DATA_FILE)
+    local_attestation = ATTESTATION_DATA_FILE
+    path_to_load = attestation_file_in_parent if os.path.exists(attestation_file_in_parent) else local_attestation
 
-    if os.path.exists(attestation_file_in_parent) and os.stat(attestation_file_in_parent).st_size > 0:
+    if os.path.exists(path_to_load) and os.stat(path_to_load).st_size > 0:
         try:
-            attestation_df = pd.read_csv(attestation_file_in_parent, dtype=str)
+            attestation_df = pd.read_csv(path_to_load, dtype=str)
             attestation_df.columns = attestation_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
             if 'Roll Number' in attestation_df.columns:
                 attestation_df['Roll Number'] = attestation_df['Roll Number'].apply(_format_roll_number)
@@ -642,17 +591,14 @@ def load_data():
                 if col_name in attestation_df.columns:
                     attestation_df[col_name] = attestation_df[col_name].fillna('').astype(str)
         except Exception as e:
-            st.error(f"Error loading {ATTESTATION_DATA_FILE} from parent folder: {e}.")
-            attestation_df = pd.DataFrame()
+            pass
   
-    # Store in session state
     st.session_state['sitting_plan'] = sitting_plan_df
     st.session_state['timetable'] = timetable_df
     st.session_state['assigned_seats_df'] = assigned_seats_df
     st.session_state['attestation_df'] = attestation_df
 
     return sitting_plan_df, timetable_df, assigned_seats_df, attestation_df
-    
 
 
 def _format_paper_code(code):
@@ -1910,131 +1856,107 @@ def get_session_paper_summary(date_str, shift, sitting_plan_df, assigned_seats_d
 # NEW FUNCTION: Display Room Occupancy Report
 def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_df):
     st.subheader("📊 Room Occupancy Report")
-    st.info("View detailed occupancy for each room for a selected date and shift.")
+    st.info("View detailed occupancy for each room based on Assigned Seats.")
 
-    if sitting_plan_df.empty or timetable_df.empty:
-        st.warning("Please upload 'sitting_plan.csv' and 'timetable.csv' via the Admin Panel to generate this report.")
+    # We strictly need assigned_seats_df and timetable_df (for dates)
+    if assigned_seats_df.empty or timetable_df.empty:
+        st.warning("Please upload 'assigned_seats.csv' and 'timetable.csv' (and ensure seats are assigned) to generate this report.")
         return
 
-    # date and shift filters for the report
-    report_date_options = sorted(timetable_df["date"].dropna().unique())
-    report_shift_options = sorted(timetable_df["shift"].dropna().unique())
+    # --- 1. Standardize Columns ---
+    assigned_seats_df['date'] = assigned_seats_df['date'].astype(str).str.strip()
+    assigned_seats_df['shift'] = assigned_seats_df['shift'].astype(str).str.strip().str.lower()
+    assigned_seats_df['Room Number'] = assigned_seats_df['Room Number'].astype(str).str.strip()
+    assigned_seats_df['Seat Number'] = assigned_seats_df['Seat Number'].astype(str).str.strip()
+    
+    timetable_df['date'] = timetable_df['date'].astype(str).str.strip()
+    timetable_df['shift'] = timetable_df['shift'].astype(str).str.strip().str.lower()
 
-    if not report_date_options or not report_shift_options:
-        st.info("No exam dates or shifts found in the timetable to generate a report.")
-        return
+    # --- 2. Date and Shift Selection ---
+    # Get options from Timetable (or Assigned Seats if Timetable is partial, but Timetable is safer for full list)
+    report_date_options = sorted(timetable_df["date"].unique())
+    report_shift_options = sorted(timetable_df["shift"].str.title().unique())
 
-    selected_report_date = st.selectbox("Select date", report_date_options, key="room_report_date")
-    selected_report_shift = st.selectbox("Select shift", report_shift_options, key="room_report_shift")
+    col1, col2 = st.columns(2)
+    with col1:
+        selected_report_date = st.selectbox("Select Date", report_date_options, key="room_report_date")
+    with col2:
+        selected_report_shift = st.selectbox("Select Shift", report_shift_options, key="room_report_shift")
 
     if st.button("Generate Room Occupancy Report"):
-        # Filter sitting plan for relevant exams on this date/shift
-        relevant_tt_exams = timetable_df[
-            (timetable_df["date"].astype(str).str.strip() == selected_report_date) &
-            (timetable_df["shift"].astype(str).str.strip().str.lower() == selected_report_shift.lower())
-        ]
+        # --- 3. Filter Assigned Seats (The Source of Truth) ---
+        relevant_assignments = assigned_seats_df[
+            (assigned_seats_df['date'] == selected_report_date) &
+            (assigned_seats_df['shift'] == selected_report_shift.lower())
+        ].copy()
 
-        if relevant_tt_exams.empty:
-            st.info("No exams scheduled for the selected date and shift to generate room occupancy.")
+        if relevant_assignments.empty:
+            st.warning(f"No students have been assigned seats for {selected_report_date} ({selected_report_shift}).")
             return
 
-        # Get unique combinations of (Class, Paper, Paper Code, Paper Name) for the relevant exams
-        unique_exams_in_session = relevant_tt_exams[['Class', 'Paper', 'Paper Code', 'Paper Name']].drop_duplicates()
+        # --- 4. Aggregate Data by Room ---
+        room_stats = {} 
 
+        for _, row in relevant_assignments.iterrows():
+            room_num = row['Room Number']
+            if room_num not in room_stats:
+                room_stats[room_num] = {
+                    'count': 0, 
+                    'details': []
+                }
+            
+            room_stats[room_num]['count'] += 1
+            
+            # Create detail string: "RollNumber (Seat)"
+            # You can add Paper Code if needed: f"{row['Roll Number']} ({row['Seat Number']}) [{row['Paper Code']}]"
+            detail_str = f"{row['Roll Number']} ({row['Seat Number']})"
+            room_stats[room_num]['details'].append(detail_str)
+
+        # --- 5. Build Final DataFrame ---
         room_occupancy_data = []
+        for room_num, stats in room_stats.items():
+            # Sort student details by seat number for readability
+            # Logic attempts to sort numerically if seat is "1", "2" or "1A", "2A"
+            try:
+                stats['details'].sort(key=lambda x: int(''.join(filter(str.isdigit, x.split('(')[1]))))
+            except:
+                stats['details'].sort() # Fallback to string sort
 
-        # Iterate through each unique room in the sitting plan that has a room number assigned
-        all_rooms_in_sitting_plan = sitting_plan_df['Room Number'].dropna().astype(str).str.strip().unique()
-        
-        for room_num in sorted(all_rooms_in_sitting_plan):
-            # Find all sitting plan entries for this room
-            room_sitting_plan_entries = sitting_plan_df[sitting_plan_df['Room Number'].astype(str).str.strip() == room_num]
-            
-            expected_students_in_room = 0
-            assigned_students_in_room = 0
-            assigned_roll_numbers_list = []
+            details_display = ", ".join(stats['details'])
 
-            # Calculate expected students for this room for the selected session
-            for _, sp_row in room_sitting_plan_entries.iterrows():
-                # Create a temporary key to link sitting plan entries to unique exams in session
-                sp_exam_key = str(sp_row['Class']).strip() + "_" + \
-                              str(sp_row['Paper']).strip() + "_" + \
-                              _format_paper_code(sp_row['Paper Code']) + "_" + \
-                              str(sp_row['Paper Name']).strip()
-                
-                # Check if this sitting plan entry's exam is part of the current session
-                is_relevant_exam = False
-                for _, ue_row in unique_exams_in_session.iterrows():
-                    ue_exam_key = str(ue_row['Class']).strip() + "_" + \
-                                  str(ue_row['Paper']).strip() + "_" + \
-                                  _format_paper_code(ue_row['Paper Code']) + "_" + \
-                                  str(ue_row['Paper Name']).strip()
-                    if sp_exam_key == ue_exam_key:
-                        is_relevant_exam = True
-                        break
-                
-                if is_relevant_exam:
-                    for i in range(1, 11):
-                        roll_col = f"Roll Number {i}"
-                        if roll_col in sp_row and pd.notna(sp_row[roll_col]) and str(sp_row[roll_col]).strip() != '':
-                            expected_students_in_room += 1
-            
-            # Get assigned students for this room for the selected session
-            room_assigned_students_df = assigned_seats_df[
-                (assigned_seats_df["Room Number"] == room_num) &
-                (assigned_seats_df["date"] == selected_report_date) &
-                (assigned_seats_df["shift"] == selected_report_shift)
-            ]
-            assigned_students_in_room = len(room_assigned_students_df)
-            
-            # Collect assigned roll numbers and their seats for display
-            if not room_assigned_students_df.empty:
-                # Sort by seat number for better readability
-                def sort_seat_number_for_display(seat):
-                    if isinstance(seat, str):
-                        if seat.endswith('A'):
-                            return (0, int(seat[:-1]))
-                        elif seat.endswith('B'):
-                            return (1, int(seat[:-1]))
-                        elif seat.isdigit():
-                            return (2, int(seat))
-                    return (3, seat)
-                
-                room_assigned_students_df['sort_key'] = room_assigned_students_df['Seat Number'].apply(sort_seat_number_for_display)
-                sorted_room_assigned = room_assigned_students_df.sort_values(by='sort_key').drop(columns=['sort_key'])
-
-                for _, assigned_row in sorted_room_assigned.iterrows():
-                    assigned_roll_numbers_list.append(
-                        f"{assigned_row['Roll Number']} (Seat: {assigned_row['Seat Number']}, Paper: {assigned_row['Paper Code']})"
-                    )
-            
-            remaining_capacity = expected_students_in_room - assigned_students_in_room
-            occupancy_percentage = (assigned_students_in_room / expected_students_in_room * 100) if expected_students_in_room > 0 else 0
-
+            # Since we are using Assigned Seats as the source, "Total Expected" is equal to "Total Assigned"
+            # We can rename the column to "Student Count" to be more accurate.
             room_occupancy_data.append({
                 'Room Number': room_num,
-                'Total Expected Students': expected_students_in_room,
-                'Assigned Students': assigned_students_in_room,
-                'Remaining Capacity': remaining_capacity,
-                'Occupancy (%)': f"{occupancy_percentage:.2f}%",
-                'Assigned Roll Numbers (Details)': ", ".join(assigned_roll_numbers_list) if assigned_roll_numbers_list else "N/A"
+                'Student Count': stats['count'],
+                'Assigned Student Details': details_display
             })
-        
+
         if room_occupancy_data:
             df_occupancy = pd.DataFrame(room_occupancy_data)
-            st.dataframe(df_occupancy)
             
-            # Optional: Download button for this report
+            # Sort by Room Number (Numeric if possible)
+            try:
+                df_occupancy['room_sort'] = pd.to_numeric(df_occupancy['Room Number'], errors='coerce')
+                df_occupancy = df_occupancy.sort_values('room_sort').drop(columns=['room_sort'])
+            except:
+                df_occupancy = df_occupancy.sort_values('Room Number')
+
+            # Reorder columns
+            st.dataframe(df_occupancy[['Room Number', 'Student Count', 'Assigned Student Details']], use_container_width=True)
+            
+            # Download Button
             csv_occupancy = df_occupancy.to_csv(index=False).encode('utf-8')
+            file_name = f"room_occupancy_{selected_report_date}_{selected_report_shift}.csv"
             st.download_button(
                 label="Download Room Occupancy Report as CSV",
                 data=csv_occupancy,
-                file_name=f"room_occupancy_report_{selected_report_date}_{selected_report_shift}.csv",
+                file_name=file_name,
                 mime="text/csv",
             )
         else:
-            st.info("No room occupancy data found for the selected date and shift.")
-
+            st.info("No occupancy data generated.")
+            
 # NEW FUNCTION: Generate Room Chart in specified format
 def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_df, timetable_df):
     output_string_parts = []
@@ -2375,72 +2297,79 @@ def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, 
     return _generate_ufm_print_form_with_context # Return the inner function so it can be called with context
 
 
-# Function to display the Report Panel
 def display_report_panel():
     st.subheader("📊 Exam Session Reports")
 
-    sitting_plan, timetable, assigned_seats_df, attestation_df = load_data() # Load assigned_seats_df here
+    # 1. Load all necessary data
+    sitting_plan, timetable, assigned_seats_df, attestation_df = load_data()
     all_reports_df = load_cs_reports_csv()
-    room_invigilators_df = load_room_invigilator_assignments() # Load room invigilators
+    room_invigilators_df = load_room_invigilator_assignments()
 
     if all_reports_df.empty and room_invigilators_df.empty:
         st.info("No Centre Superintendent reports or invigilator assignments available yet for statistics.")
         return
+
+    if assigned_seats_df.empty:
+        st.warning("Assigned seats data is required to calculate expected student counts. Please assign seats first.")
+        return
+
+    # 2. Prepare "Expected Students" from Assigned Seats (Source of Truth)
+    # Normalize text columns to ensure merges work correctly
+    assigned_seats_df['Room Number'] = assigned_seats_df['Room Number'].astype(str).str.strip()
+    assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].astype(str).str.strip().str.lower()
+    assigned_seats_df['Paper Name'] = assigned_seats_df['Paper Name'].astype(str).str.strip().str.lower()
+    assigned_seats_df['date'] = assigned_seats_df['date'].astype(str).str.strip()
+    assigned_seats_df['shift'] = assigned_seats_df['shift'].astype(str).str.strip().str.lower()
+
+    # We need 'Class' info which is in Timetable, not usually in Assigned Seats
+    timetable['Paper Code'] = timetable['Paper Code'].astype(str).str.strip().str.lower()
+    timetable['date'] = timetable['date'].astype(str).str.strip()
+    timetable['shift'] = timetable['shift'].astype(str).str.strip().str.lower()
     
-    if sitting_plan.empty:
-        st.info("Sitting plan data is required for full report statistics.")
-        # We can still show basic reports if sitting_plan is empty, but attendance % will be off.
+    # Create a lookup for Class based on Paper/Date/Shift
+    timetable_lookup = timetable[['date', 'shift', 'Paper Code', 'Class']].drop_duplicates()
+    timetable_lookup['Class'] = timetable_lookup['Class'].astype(str).str.strip().str.lower()
 
-    # Initialize expected_students_df with all necessary columns from the start
-    # and populate it with expected student counts from the sitting plan
-    expected_students_data = []
-    if not sitting_plan.empty:
-        for idx, row in sitting_plan.iterrows():
-            expected_count = 0
-            for i in range(1, 11):
-                if pd.notna(row.get(f"Roll Number {i}")) and str(row.get(f"Roll Number {i}")).strip() != '':
-                    expected_count += 1
-            
-            expected_students_data.append({
-                'Room Number': str(row['Room Number']).strip(),
-                'Class': str(row['Class']).strip(), # Keep as string, lower() later
-                'Paper': str(row['Paper']).strip(),   # Keep as string, lower() later
-                'Paper Code': _format_paper_code(row['Paper Code']), # Use formatted paper code
-                'Paper Name': str(row['Paper Name']).strip(), # Keep as string, lower() later
-                'Mode': str(row.get('Mode', '')).strip(),
-                'Type': str(row.get('Type', '')).strip(),
-                'expected_students_count': expected_count
-            })
-    expected_students_df = pd.DataFrame(expected_students_data)
+    # Merge Class info into Assigned Seats
+    assigned_seats_with_class = pd.merge(
+        assigned_seats_df,
+        timetable_lookup,
+        on=['date', 'shift', 'Paper Code'],
+        how='left'
+    )
+    assigned_seats_with_class['Class'] = assigned_seats_with_class['Class'].fillna('unknown')
 
-    # Standardize merge keys in all_reports_df
+    # 3. Aggregate: Count students per Room/Paper/Session
+    # This eliminates any duplicate rows issues
+    expected_students_aggregated = assigned_seats_with_class.groupby(
+        ['date', 'shift', 'Room Number', 'Paper Code', 'Paper Name', 'Class']
+    )['Roll Number'].count().reset_index()
+    
+    expected_students_aggregated.rename(columns={'Roll Number': 'expected_students_count'}, inplace=True)
+
+    # 4. Prepare Reports Data
+    all_reports_df['date'] = all_reports_df['date'].astype(str).str.strip()
+    all_reports_df['shift'] = all_reports_df['shift'].astype(str).str.strip().str.lower()
     all_reports_df['room_num'] = all_reports_df['room_num'].astype(str).str.strip()
     all_reports_df['paper_code'] = all_reports_df['paper_code'].astype(str).str.strip().str.lower()
     all_reports_df['paper_name'] = all_reports_df['paper_name'].astype(str).str.strip().str.lower()
     all_reports_df['class'] = all_reports_df['class'].astype(str).str.strip().str.lower()
 
-    # Standardize merge keys in expected_students_df (apply .str.lower() here)
-    expected_students_df['Room Number'] = expected_students_df['Room Number'].astype(str).str.strip()
-    expected_students_df['Paper Code'] = expected_students_df['Paper Code'].astype(str).str.strip().str.lower()
-    expected_students_df['Paper Name'] = expected_students_df['Paper Name'].astype(str).str.strip().str.lower()
-    expected_students_df['Class'] = expected_students_df['Class'].astype(str).str.strip().str.lower()
-
-
-    # Merge all_reports_df with expected_students_df
-    # We want to keep all report entries and add expected counts where available
+    # 5. Merge Reports with Expected Counts
+    # Key fix: Matching strictly on Date + Shift + Room + Paper
     merged_reports_df = pd.merge(
         all_reports_df,
-        expected_students_df,
-        left_on=['room_num', 'paper_code', 'paper_name', 'class'],
-        right_on=['Room Number', 'Paper Code', 'Paper Name', 'Class'],
-        how='left', # Use left merge to keep all reports
-        suffixes=('_report', '_sp')
+        expected_students_aggregated,
+        left_on=['date', 'shift', 'room_num', 'paper_code', 'paper_name', 'class'],
+        right_on=['date', 'shift', 'Room Number', 'Paper Code', 'Paper Name', 'Class'],
+        how='left',
+        suffixes=('_report', '_assigned')
     )
 
-    # Fill NaN expected_students_count with 0 for reports where no matching sitting plan entry was found
+    # Fill NaN expected_students_count with 0 (if a report exists for a room with 0 assigned seats, theoretically impossible but safe to handle)
     merged_reports_df['expected_students_count'] = merged_reports_df['expected_students_count'].fillna(0).astype(int)
 
-    # Merge with room_invigilators_df to add invigilator info
+    # 6. Merge Invigilators
     if not room_invigilators_df.empty:
         room_invigilators_df['date'] = room_invigilators_df['date'].astype(str).str.strip()
         room_invigilators_df['shift'] = room_invigilators_df['shift'].astype(str).str.strip().str.lower()
@@ -2451,30 +2380,28 @@ def display_report_panel():
             room_invigilators_df[['date', 'shift', 'room_num', 'invigilators']],
             on=['date', 'shift', 'room_num'],
             how='left',
-            suffixes=('', '_room_inv') # Suffix to avoid column name collision if 'invigilators' existed in merged_reports_df
+            suffixes=('', '_room_inv') 
         )
-        # Fill NaN invigilators with empty list for reports where no invigilator assignment was found
         merged_reports_df['invigilators'] = merged_reports_df['invigilators'].apply(lambda x: x if isinstance(x, list) else [])
-
     else:
-        merged_reports_df['invigilators'] = [[]] * len(merged_reports_df) # Add empty list if no invigilator data
+        merged_reports_df['invigilators'] = [[]] * len(merged_reports_df)
 
+    # 7. Calculate & Display Overall Statistics
     st.markdown("---")
     st.subheader("Overall Statistics")
 
     total_reports = len(merged_reports_df)
     unique_sessions = merged_reports_df['report_key'].nunique()
+    
+    # Calculate Expected Students sum
+    total_expected_students = merged_reports_df['expected_students_count'].sum()
+    
+    # Calculate Absent/UFM
     total_absent = merged_reports_df['absent_roll_numbers'].apply(len).sum()
     total_ufm = merged_reports_df['ufm_roll_numbers'].apply(len).sum()
     
-    # Calculate total expected students directly from the expected_students_df
-    total_expected_students = expected_students_df['expected_students_count'].sum()
-    
-    # Calculate total present students
     total_present_students = total_expected_students - total_absent
-    # Calculate total answer sheets collected
     total_answer_sheets_collected = total_present_students - total_ufm
-
 
     overall_attendance_percentage = 0
     if total_expected_students > 0:
@@ -2505,32 +2432,31 @@ def display_report_panel():
     st.markdown("---")
     st.subheader("Paper-wise Statistics")
 
-    # Group expected students by paper
-    expected_by_paper = expected_students_df.groupby(['Paper Name', 'Paper Code']).agg(
+    # Group aggregated expected data by Paper
+    expected_by_paper = expected_students_aggregated.groupby(['Paper Name', 'Paper Code']).agg(
         expected_students=('expected_students_count', 'sum')
     ).reset_index()
+    
     expected_by_paper.rename(columns={'Paper Name': 'paper_name', 'Paper Code': 'paper_code'}, inplace=True)
     expected_by_paper['paper_name'] = expected_by_paper['paper_name'].astype(str).str.strip().str.lower()
     expected_by_paper['paper_code'] = expected_by_paper['paper_code'].astype(str).str.strip().str.lower()
 
-    # Group reported data by paper
+    # Group reported data by Paper
     reported_by_paper = merged_reports_df.groupby(['paper_name', 'paper_code']).agg(
         total_absent=('absent_roll_numbers', lambda x: x.apply(len).sum()),
         total_ufm=('ufm_roll_numbers', lambda x: x.apply(len).sum())
     ).reset_index()
 
-    # Merge expected and reported data
+    # Merge
     paper_stats = pd.merge(
         expected_by_paper,
         reported_by_paper,
         on=['paper_name', 'paper_code'],
-        how='left' # Keep all papers from expected_students_df
+        how='left'
     )
 
-    # Fill NaN values for absent/ufm with 0 where no reports exist
     paper_stats['total_absent'] = paper_stats['total_absent'].fillna(0).astype(int)
     paper_stats['total_ufm'] = paper_stats['total_ufm'].fillna(0).astype(int)
-
     paper_stats['total_present'] = paper_stats['expected_students'] - paper_stats['total_absent']
     paper_stats['total_answer_sheets_collected'] = paper_stats['total_present'] - paper_stats['total_ufm']
     paper_stats['attendance_percentage'] = paper_stats.apply(
@@ -2539,153 +2465,98 @@ def display_report_panel():
     )
     paper_stats['attendance_percentage'] = paper_stats['attendance_percentage'].map('{:.2f}%'.format)
 
-    # Rename columns for display
+    # Rename for display
     paper_stats.rename(columns={
-        'paper_name': 'Paper Name',
-        'paper_code': 'Paper Code',
-        'expected_students': 'Expected Students',
-        'total_absent': 'Absent Students',
-        'total_present': 'Present Students',
-        'total_ufm': 'UFM Cases',
-        'total_answer_sheets_collected': 'Answer Sheets Collected',
-        'attendance_percentage': 'Attendance (%)'
+        'paper_name': 'Paper Name', 'paper_code': 'Paper Code',
+        'expected_students': 'Expected Students', 'total_absent': 'Absent Students',
+        'total_present': 'Present Students', 'total_ufm': 'UFM Cases',
+        'total_answer_sheets_collected': 'Answer Sheets Collected', 'attendance_percentage': 'Attendance (%)'
     }, inplace=True)
 
     st.dataframe(paper_stats[['Paper Name', 'Paper Code', 'Expected Students', 'Present Students', 'Absent Students', 'UFM Cases', 'Answer Sheets Collected', 'Attendance (%)']])
 
-
-    # --- Student Type-wise Statistics ---
+    # --- Class-wise Statistics ---
+    # (Replaced "Type-wise" because Assigned Seats doesn't usually have Type/Mode columns)
     st.markdown("---")
-    st.subheader("Student Type-wise Statistics")
+    st.subheader("Class-wise Statistics")
 
-    # Group expected students by Class, Mode, Type
-    expected_by_type = expected_students_df.groupby(['Class', 'Mode', 'Type']).agg(
+    expected_by_class = expected_students_aggregated.groupby(['Class']).agg(
         expected_students=('expected_students_count', 'sum')
     ).reset_index()
-    expected_by_type.rename(columns={'Class': 'Class_sp', 'Mode': 'Mode_sp', 'Type': 'Type_sp'}, inplace=True)
+    expected_by_class['Class'] = expected_by_class['Class'].astype(str).str.strip().str.lower()
+
+    reported_by_class = merged_reports_df.groupby(['class']).agg(
+        total_absent=('absent_roll_numbers', lambda x: x.apply(len).sum()),
+        total_ufm=('ufm_roll_numbers', lambda x: x.apply(len).sum())
+    ).reset_index()
+    reported_by_class.rename(columns={'class': 'Class'}, inplace=True)
+
+    class_stats = pd.merge(expected_by_class, reported_by_class, on='Class', how='left')
+
+    class_stats['total_absent'] = class_stats['total_absent'].fillna(0).astype(int)
+    class_stats['total_ufm'] = class_stats['total_ufm'].fillna(0).astype(int)
+    class_stats['total_present'] = class_stats['expected_students'] - class_stats['total_absent']
+    class_stats['total_answer_sheets_collected'] = class_stats['total_present'] - class_stats['total_ufm']
+    class_stats['attendance_percentage'] = class_stats.apply(
+        lambda row: (row['total_present'] / row['expected_students'] * 100) if row['expected_students'] > 0 else 0,
+        axis=1
+    )
+    class_stats['attendance_percentage'] = class_stats['attendance_percentage'].map('{:.2f}%'.format)
+
+    class_stats.rename(columns={
+        'expected_students': 'Expected Students', 'total_absent': 'Absent Students',
+        'total_present': 'Present Students', 'total_ufm': 'UFM Cases',
+        'total_answer_sheets_collected': 'Answer Sheets Collected', 'attendance_percentage': 'Attendance (%)'
+    }, inplace=True)
+
+    st.dataframe(class_stats[['Class', 'Expected Students', 'Present Students', 'Absent Students', 'UFM Cases', 'Answer Sheets Collected', 'Attendance (%)']])
 
 
-    # Group reported data by Class, Mode, Type (from the merged_reports_df which has _sp suffixes)
-    # Ensure these columns exist before grouping, as they come from the sitting plan side of the merge
-    required_type_cols_for_grouping = ['Class_sp', 'Mode_sp', 'Type_sp']
-    
-    # Filter merged_reports_df to ensure we only consider rows where type info is available
-    if all(col in merged_reports_df.columns for col in required_type_cols_for_grouping):
-        reported_by_type_df = merged_reports_df.dropna(subset=required_type_cols_for_grouping).copy()
-
-        if not reported_by_type_df.empty:
-            reported_by_type = reported_by_type_df.groupby(required_type_cols_for_grouping).agg(
-                total_absent=('absent_roll_numbers', lambda x: x.apply(len).sum()),
-                total_ufm=('ufm_roll_numbers', lambda x: x.apply(len).sum())
-            ).reset_index()
-
-            # Merge expected and reported data
-            type_stats = pd.merge(
-                expected_by_type,
-                reported_by_type,
-                on=required_type_cols_for_grouping,
-                how='left' # Keep all types from expected_students_df
-            )
-
-            # Fill NaN values for absent/ufm with 0 where no reports exist
-            type_stats['total_absent'] = type_stats['total_absent'].fillna(0).astype(int)
-            type_stats['total_ufm'] = type_stats['total_ufm'].fillna(0).astype(int)
-
-            type_stats['total_present'] = type_stats['expected_students'] - type_stats['total_absent']
-            type_stats['total_answer_sheets_collected'] = type_stats['total_present'] - type_stats['total_ufm']
-            type_stats['attendance_percentage'] = type_stats.apply(
-                lambda row: (row['total_present'] / row['expected_students'] * 100) if row['expected_students'] > 0 else 0,
-                axis=1
-            )
-            type_stats['attendance_percentage'] = type_stats['attendance_percentage'].map('{:.2f}%'.format)
-
-            # Rename columns for display
-            type_stats.rename(columns={
-                'Class_sp': 'Class',
-                'Mode_sp': 'Mode',
-                'Type_sp': 'Type',
-                'expected_students': 'Expected Students',
-                'total_absent': 'Absent Students',
-                'total_present': 'Present Students',
-                'total_ufm': 'UFM Cases',
-                'total_answer_sheets_collected': 'Answer Sheets Collected',
-                'attendance_percentage': 'Attendance (%)'
-            }, inplace=True)
-
-            st.dataframe(type_stats[['Class', 'Mode', 'Type', 'Expected Students', 'Present Students', 'Absent Students', 'UFM Cases', 'Answer Sheets Collected', 'Attendance (%)']])
-        else:
-            st.info("No student type data available in reports for statistics after filtering.")
-    else:
-        st.info("Required student type columns (Class, Mode, Type) are not available in the merged reports for statistics.")
-
-
+    # --- Filtering & Detailed Lists (Unchanged logic) ---
     st.markdown("---")
     st.subheader("Filter and View Reports")
 
-    # Filters
     unique_dates = sorted(merged_reports_df['date'].unique())
     unique_shifts = sorted(merged_reports_df['shift'].unique())
     unique_rooms = sorted(merged_reports_df['room_num'].unique())
     unique_papers = sorted(merged_reports_df['paper_name'].unique())
 
-    filter_date = st.selectbox("Filter by date", ["All"] + unique_dates, key="report_filter_date")
-    filter_shift = st.selectbox("Filter by shift", ["All"] + unique_shifts, key="report_filter_shift")
+    filter_date = st.selectbox("Filter by Date", ["All"] + unique_dates, key="report_filter_date")
+    filter_shift = st.selectbox("Filter by Shift", ["All"] + unique_shifts, key="report_filter_shift")
     filter_room = st.selectbox("Filter by Room Number", ["All"] + unique_rooms, key="report_filter_room")
     filter_paper = st.selectbox("Filter by Paper Name", ["All"] + unique_papers, key="report_filter_paper")
 
     filtered_reports_df = merged_reports_df.copy()
 
-    if filter_date != "All":
-        filtered_reports_df = filtered_reports_df[filtered_reports_df['date'] == filter_date]
-    if filter_shift != "All":
-        filtered_reports_df = filtered_reports_df[filtered_reports_df['shift'] == filter_shift]
-    if filter_room != "All":
-        filtered_reports_df = filtered_reports_df[filtered_reports_df['room_num'] == filter_room]
-    if filter_paper != "All":
-        filtered_reports_df = filtered_reports_df[filtered_reports_df['paper_name'] == filter_paper]
+    if filter_date != "All": filtered_reports_df = filtered_reports_df[filtered_reports_df['date'] == filter_date]
+    if filter_shift != "All": filtered_reports_df = filtered_reports_df[filtered_reports_df['shift'] == filter_shift]
+    if filter_room != "All": filtered_reports_df = filtered_reports_df[filtered_reports_df['room_num'] == filter_room]
+    if filter_paper != "All": filtered_reports_df = filtered_reports_df[filtered_reports_df['paper_name'] == filter_paper]
 
     if filtered_reports_df.empty:
         st.info("No reports match the selected filters.")
     else:
-        st.markdown("---")
-        st.subheader("Filtered Reports Summary")
         st.dataframe(filtered_reports_df[[
-            'date', 'shift', 'room_num', 'paper_code', 'paper_name', 'invigilators', # 'invigilators' is now from merge
+            'date', 'shift', 'room_num', 'paper_code', 'paper_name', 'invigilators', 
             'absent_roll_numbers', 'ufm_roll_numbers'
-        ]].rename(columns={
-            'date': 'date', 'shift': 'shift', 'room_num': 'Room',
-            'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
-            'invigilators': 'Invigilators',
-            'absent_roll_numbers': 'Absent Roll Numbers',
-            'ufm_roll_numbers': 'UFM Roll Numbers'
-        }))
-
+        ]])
+        
+        # --- Downloads for Absent/UFM Lists ---
         st.markdown("---")
         st.subheader("Detailed Absentee List (Filtered)")
         absent_list_data = []
         for _, row in filtered_reports_df.iterrows():
             for roll in row['absent_roll_numbers']:
                 absent_list_data.append({
-                    'date': row['date'],
-                    'shift': row['shift'],
-                    'Room': row['room_num'],
-                    'Paper Code': row['paper_code'],
-                    'Paper Name': row['paper_name'],
-                    'Absent Roll Number': roll
+                    'date': row['date'], 'shift': row['shift'], 'Room': row['room_num'],
+                    'Paper Code': row['paper_code'], 'Paper Name': row['paper_name'], 'Absent Roll Number': roll
                 })
         
         if absent_list_data:
             df_absent = pd.DataFrame(absent_list_data)
             st.dataframe(df_absent)
-            
-            # Download Absentee List
             csv_absent = df_absent.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Download Absentee List as CSV",
-                data=csv_absent,
-                file_name=f"absent_list_{filter_date}_{filter_shift}.csv",
-                mime="text/csv",
-            )
+            st.download_button("Download Absentee List as CSV", csv_absent, f"absent_list_{filter_date}_{filter_shift}.csv", "text/csv")
         else:
             st.info("No absent students in the filtered reports.")
 
@@ -2695,26 +2566,15 @@ def display_report_panel():
         for _, row in filtered_reports_df.iterrows():
             for roll in row['ufm_roll_numbers']:
                 ufm_list_data.append({
-                    'date': row['date'],
-                    'shift': row['shift'],
-                    'Room': row['room_num'],
-                    'Paper Code': row['paper_code'],
-                    'Paper Name': row['paper_name'],
-                    'UFM Roll Number': roll
+                    'date': row['date'], 'shift': row['shift'], 'Room': row['room_num'],
+                    'Paper Code': row['paper_code'], 'Paper Name': row['paper_name'], 'UFM Roll Number': roll
                 })
         
         if ufm_list_data:
             df_ufm = pd.DataFrame(ufm_list_data)
             st.dataframe(df_ufm)
-
-            # Download UFM List
             csv_ufm = df_ufm.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Download UFM List as CSV",
-                data=csv_ufm,
-                file_name=f"ufm_list_{filter_date}_{filter_shift}.csv",
-                mime="text/csv",
-            )
+            st.download_button("Download UFM List as CSV", csv_ufm, f"ufm_list_{filter_date}_{filter_shift}.csv", "text/csv")
         else:
             st.info("No UFM cases in the filtered reports.")
             
