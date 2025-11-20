@@ -169,17 +169,20 @@ def load_global_setting_from_supabase(setting_key):
         # traceback.print_exc() # Uncomment for debugging
         return None
 
-
 # --- Configuration ---
 CS_REPORTS_FILE = "cs_reports.csv"
 EXAM_TEAM_MEMBERS_FILE = "exam_team_members.csv"
-shift_ASSIGNMENTS_FILE = "shift_assignments.csv"
-ROOM_INVIGILATORS_FILE = "room_invigilator_assignments.csv" # New file for room-wise invigilators
-SITTING_PLAN_FILE = "sitting_plan.csv" # Standardized sitting plan filename
-TIMETABLE_FILE = "timetable.csv" # Standardized timetable filename
-ASSIGNED_SEATS_FILE = "assigned_seats.csv" # New file for assigned seats
-ATTESTATION_DATA_FILE = "attestation_data_combined.csv" # For rasa_pdf output
-COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv" # For college_statistic output
+SHIFT_ASSIGNMENTS_FILE = "shift_assignments.csv"
+ROOM_INVIGILATORS_FILE = "room_invigilator_assignments.csv"
+SITTING_PLAN_FILE = "sitting_plan.csv"
+TIMETABLE_FILE = "timetable.csv"
+ASSIGNED_SEATS_FILE = "assigned_seats.csv"
+ATTESTATION_DATA_FILE = "attestation_data_combined.csv"
+COLLEGE_STATISTICS_FILE = "college_statistics_fancy.csv"
+
+# --- ADD THESE TWO LINES ---
+PREP_CLOSING_ASSIGNMENTS_FILE = "prep_closing_assignments.csv"
+GLOBAL_SETTINGS_FILE = "global_settings.csv"
 
 
 # --- Session State Initialization (MUST be at the top level of the script) ---
@@ -522,41 +525,36 @@ def download_attestation_data_to_parent_folder():
     
     return success, message
 
-# --- MODIFIED: load_data (remove attestation download from here) ---
 def load_data():
     """
     Loads all required CSV data from local files, downloading from Supabase if missing.
-    This version includes CRITICAL cleaning for all join keys (whitespace AND trailing '.0').
+    UPDATED: Forces download of prep_closing_assignments and global_settings to prevent data loss on restart.
     """
     sitting_plan_df = pd.DataFrame()
     timetable_df = pd.DataFrame()
     assigned_seats_df = pd.DataFrame(columns=["Roll Number", "Paper Code", "Paper Name", "Room Number", "Seat Number", "date", "shift"])
     attestation_df = pd.DataFrame()
 
-    # --- Initial Downloads from Supabase (Your existing logic is fine) ---
-    
-    # Download Timetable
-    if not os.path.exists(TIMETABLE_FILE) or os.stat(TIMETABLE_FILE).st_size == 0:
-        st.info(f"Attempting to download {TIMETABLE_FILE} from Supabase...")
-        success, message = download_supabase_to_csv("timetable", TIMETABLE_FILE)
-        if not success:
-            st.warning(f"Failed to download {TIMETABLE_FILE} from Supabase: {message}.")
-    
-    # Download Sitting Plan
-    if not os.path.exists(SITTING_PLAN_FILE) or os.stat(SITTING_PLAN_FILE).st_size == 0:
-        st.info(f"Attempting to download {SITTING_PLAN_FILE} from Supabase...")
-        success, message = download_supabase_to_csv("sitting_plan", SITTING_PLAN_FILE)
-        if not success:
-            st.warning(f"Failed to download {SITTING_PLAN_FILE} from Supabase: {message}.")
+    # --- 1. CRITICAL: Force Download of ALL Supabase Tables ---
+    # This ensures that when the app restarts (next day), it fetches your saved data.
+    tables_to_sync = {
+        "timetable": TIMETABLE_FILE,
+        "sitting_plan": SITTING_PLAN_FILE,
+        "assigned_seats": ASSIGNED_SEATS_FILE,
+        "prep_closing_assignments": PREP_CLOSING_ASSIGNMENTS_FILE, # FIX: Added this
+        "global_settings": GLOBAL_SETTINGS_FILE,                   # FIX: Added this
+        "shift_assignments": SHIFT_ASSIGNMENTS_FILE,               
+        "room_invigilator_assignments": ROOM_INVIGILATORS_FILE,    
+        "exam_team_members": EXAM_TEAM_MEMBERS_FILE,               
+        "cs_reports": CS_REPORTS_FILE                              
+    }
 
-    # Download Assigned Seats
-    if not os.path.exists(ASSIGNED_SEATS_FILE) or os.stat(ASSIGNED_SEATS_FILE).st_size == 0:
-        st.info(f"Attempting to download {ASSIGNED_SEATS_FILE} from Supabase...")
-        success, message = download_supabase_to_csv("assigned_seats", ASSIGNED_SEATS_FILE)
-        if not success:
-            st.warning(f"Failed to download {ASSIGNED_SEATS_FILE} from Supabase: {message}.")
+    for table_name, file_path in tables_to_sync.items():
+        # Check if file is missing or empty, then download
+        if not os.path.exists(file_path) or os.stat(file_path).st_size == 0:
+            download_supabase_to_csv(table_name, file_path)
 
-    # --- Load DataFrames with Consistent Cleaning ---
+    # --- 2. Load DataFrames for the App ---
     
     # Load Sitting Plan
     if os.path.exists(SITTING_PLAN_FILE) and os.stat(SITTING_PLAN_FILE).st_size > 0:
@@ -568,7 +566,6 @@ def load_data():
             if 'Paper Code' in sitting_plan_df.columns:
                 sitting_plan_df['Paper Code'] = sitting_plan_df['Paper Code'].apply(_format_paper_code)
             
-            # **FIX**: Clean all roll number columns
             for i in range(1, 11):
                 col_name = f'Roll Number {i}'
                 if col_name in sitting_plan_df.columns:
@@ -584,7 +581,6 @@ def load_data():
             timetable_df = pd.read_csv(TIMETABLE_FILE, dtype=str)
             timetable_df.columns = timetable_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
             
-            # **FIX**: Clean all key columns
             if 'Paper Code' in timetable_df.columns:
                 timetable_df['Paper Code'] = timetable_df['Paper Code'].apply(_format_paper_code)
             if 'date' in timetable_df.columns:
@@ -602,7 +598,6 @@ def load_data():
             temp_assigned_df = pd.read_csv(ASSIGNED_SEATS_FILE, dtype=str)
             temp_assigned_df.columns = temp_assigned_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
 
-            # Your rename logic
             rename_map = {}
             if 'Roll Numb' in temp_assigned_df.columns: rename_map['Roll Numb'] = 'Roll Number'
             if 'Paper Cod' in temp_assigned_df.columns: rename_map['Paper Cod'] = 'Paper Code'
@@ -620,14 +615,10 @@ def load_data():
                 assigned_seats_df = pd.DataFrame(columns=required_assigned_cols)
             else:
                 assigned_seats_df = temp_assigned_df[required_assigned_cols].copy()
-                
-                # **FIX**: Clean all key columns
                 assigned_seats_df['Paper Code'] = assigned_seats_df['Paper Code'].apply(_format_paper_code)
                 assigned_seats_df['Roll Number'] = assigned_seats_df['Roll Number'].apply(_format_roll_number)
                 assigned_seats_df['date'] = assigned_seats_df['date'].astype(str).str.strip()
                 assigned_seats_df['shift'] = assigned_seats_df['shift'].astype(str).str.strip()
-                
-                # Clean other columns for good measure
                 assigned_seats_df['Room Number'] = assigned_seats_df['Room Number'].astype(str).str.strip()
                 assigned_seats_df['Seat Number'] = assigned_seats_df['Seat Number'].astype(str).str.strip()
 
@@ -644,21 +635,16 @@ def load_data():
         try:
             attestation_df = pd.read_csv(attestation_file_in_parent, dtype=str)
             attestation_df.columns = attestation_df.columns.str.strip().str.replace('\ufeff', '').str.replace('\xa0', ' ')
-            
-            # **FIX**: Clean the key 'Roll Number' column
             if 'Roll Number' in attestation_df.columns:
                 attestation_df['Roll Number'] = attestation_df['Roll Number'].apply(_format_roll_number)
-            
             for i in range(1, 11):
                 col_name = f'Paper {i}'
                 if col_name in attestation_df.columns:
                     attestation_df[col_name] = attestation_df[col_name].fillna('').astype(str)
-            st.info(f"Loaded '{ATTESTATION_DATA_FILE}' from parent folder.")
         except Exception as e:
             st.error(f"Error loading {ATTESTATION_DATA_FILE} from parent folder: {e}.")
             attestation_df = pd.DataFrame()
   
-            
     # Store in session state
     st.session_state['sitting_plan'] = sitting_plan_df
     st.session_state['timetable'] = timetable_df
@@ -685,10 +671,10 @@ def _format_paper_code(code):
     return code_str
 
 def load_shift_assignments():
-    if os.path.exists(shift_ASSIGNMENTS_FILE):
+    if os.path.exists(SHIFT_ASSIGNMENTS_FILE):
         try:
             # Use a robust engine to handle inconsistent data
-            df = pd.read_csv(shift_ASSIGNMENTS_FILE, engine='python')
+            df = pd.read_csv(SHIFT_ASSIGNMENTS_FILE, engine='python')
             
             def safe_literal_eval(val):
                 if isinstance(val, str) and val.strip():
@@ -751,13 +737,13 @@ def save_shift_assignment(date, shift, assignments):
     
     try:
         # 1. Save to local CSV
-        assignments_df.to_csv(shift_ASSIGNMENTS_FILE, index=False)
+        assignments_df.to_csv(SHIFT_ASSIGNMENTS_FILE, index=False)
 
         # 2. Sync to Supabase
         if supabase:
             try:
                 supabase.table("shift_assignments").delete().neq("id", 0).execute()
-                upload_csv_to_supabase("shift_assignments", shift_ASSIGNMENTS_FILE)
+                upload_csv_to_supabase("shift_assignments", SHIFT_ASSIGNMENTS_FILE)
             except Exception as db_e:
                  return True, f"Saved locally, but Supabase sync failed: {db_e}"
 
