@@ -4122,16 +4122,43 @@ elif menu == "Admin Panel":
 
                 if response.data:
                     for row in response.data:
-                        row_classes = json.loads(row.get('selected_classes')) if row.get('selected_classes') else []
+                        # --- FIX START: Handle both string (JSON) and list formats ---
+                        raw_classes = row.get('selected_classes')
+                        if isinstance(raw_classes, str):
+                            row_classes = json.loads(raw_classes)
+                        elif isinstance(raw_classes, list):
+                            row_classes = raw_classes
+                        else:
+                            row_classes = []
+                        # --- FIX END ---
                         
                         # Match sets (handling empty vs None)
                         if set(row_classes) == current_selected_set:
                             # Normalize DB name too
                             db_name = str(row.get('name')).strip()
+                            
+                            # --- FIX START: Safely parse prep/closing days ---
+                            raw_prep = row.get('prep_days')
+                            if isinstance(raw_prep, str):
+                                prep_days = json.loads(raw_prep)
+                            elif isinstance(raw_prep, list):
+                                prep_days = raw_prep
+                            else:
+                                prep_days = []
+
+                            raw_closing = row.get('closing_days')
+                            if isinstance(raw_closing, str):
+                                closing_days = json.loads(raw_closing)
+                            elif isinstance(raw_closing, list):
+                                closing_days = raw_closing
+                            else:
+                                closing_days = []
+                            # --- FIX END ---
+
                             matched_data_by_name[db_name] = {
                                 'role': row.get('role', 'senior_center_superintendent'),
-                                'prep_days': json.loads(row.get('prep_days')) if row.get('prep_days') else [],
-                                'closing_days': json.loads(row.get('closing_days')) if row.get('closing_days') else []
+                                'prep_days': prep_days,
+                                'closing_days': closing_days
                             }
                             debug_found_in_db.append(db_name)
 
