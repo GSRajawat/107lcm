@@ -1,30 +1,3 @@
-Conversation opened. 3 messages. 1 message unread.
-
-Skip to content
-Using Gmail with screen readers
-in:sent 
-1 of 953
-exam_app_bot
-Inbox
-
-Ganesh Singh
-Attachments
-Wed 19 Nov, 15:43 (2 days ago)
- 
-
-Ganesh Singh
-Attachments
-Wed 19 Nov, 21:58 (2 days ago)
-best ever On Wed, 19 Nov 2025 at 15:43, Ganesh Singh <ganeshmlib@gmail.com> wrote:
-
-Ganesh Singh <ganeshmlib@gmail.com>
-Attachments
-Thu 20 Nov, 13:04 (1 day ago)
-to me
-
-many errors are corrected. best ever
- One attachment
-  •  Scanned by Gmail
 import streamlit as st
 import pandas as pd
 import os
@@ -4889,6 +4862,192 @@ elif menu == "Centre Superintendent Panel":
                                     # room_invigilators_df_display.columns = room_invigilators_df_display.columns.str.lower()
 
                                     # Map internal keys to display keys
-                                    df_all_reports_display = all_reports_df_display.rename(
-exam_app_bot.py
-Displaying exam_app_bot.py.
+                                    df_all_reports_display = all_reports_df_display.rename(columns={
+                                        'date': 'date', 'shift': 'shift', 'room_num': 'Room',
+                                        'paper_code': 'Paper Code', 'paper_name': 'Paper Name', 'class': 'Class', 
+                                        'invigilators': 'Invigilators',
+                                        'absent_roll_numbers': 'Absent Roll Numbers',
+                                        'ufm_roll_numbers': 'UFM Roll Numbers',
+                                        'report_key': 'Report Key'
+                                    })
+                                    
+                                    # Ensure all display_cols exist, fill missing with empty string
+                                    for col in display_cols:
+                                        if col not in df_all_reports_display.columns:
+                                            df_all_reports_display[col] = ""
+                                    
+                                    st.dataframe(df_all_reports_display[
+                                        ['date', 'shift', 'Room', 'Paper Code', 'Paper Name', 'Class', 
+                                            'Invigilators', 'Absent Roll Numbers', 'UFM Roll Numbers', 'Report Key']
+                                    ])
+                                else:
+                                    st.info("No reports saved yet.")
+
+
+        # ... (previous cs_panel_option elif blocks) ...
+
+        elif cs_panel_option == "Generate UFM Print Form":
+            st.subheader("🖨️ Generate UFM Print Form")
+            st.info("Select a session date and shift to view reported UFM cases and generate their print forms.")
+
+            # Load all data, including attestation_df
+            sitting_plan, timetable, assigned_seats_data, attestation_data = load_data()
+            all_cs_reports_df = load_cs_reports_csv()
+
+            if attestation_df.empty:
+                st.warning("Attestation data ('attestation_data_combined.csv') is missing. Please upload it via the Admin Panel to generate UFM forms.")
+                st.stop()
+            if all_cs_reports_df.empty:
+                st.info("No CS reports available yet. UFM cases must be reported first in 'Report Exam Session'.")
+                st.stop()
+
+            # Get unique dates and shifts from reports that have UFM cases
+            reports_with_ufm = all_cs_reports_df[all_cs_reports_df['ufm_roll_numbers'].apply(lambda x: len(x) > 0)]
+
+            if reports_with_ufm.empty:
+                st.info("No UFM cases have been reported yet in any session.")
+                st.stop()
+
+            unique_report_dates = sorted(reports_with_ufm['date'].unique())
+            unique_report_shifts = sorted(reports_with_ufm['shift'].unique())
+
+            selected_ufm_report_date = st.selectbox("Select date of UFM Report", unique_report_dates, key="ufm_report_date_select")
+            selected_ufm_report_shift = st.selectbox("Select shift of UFM Report", unique_report_shifts, key="ufm_report_shift_select")
+
+            # Filter reports for the selected date and shift
+            filtered_ufm_reports = reports_with_ufm[
+                (reports_with_ufm['date'] == selected_ufm_report_date) &
+                (reports_with_ufm['shift'] == selected_ufm_report_shift)
+            ]
+
+            # Extract all unique UFM roll numbers for the selected date/shift and paper info
+            ufm_roll_numbers_details = [] # Stores (roll_num, paper_code, paper_name, room_num)
+            for _, row in filtered_ufm_reports.iterrows():
+                room = str(row['room_num']).strip()
+                paper_code = str(row['paper_code']).strip()
+                paper_name = str(row['paper_name']).strip()
+                for ufm_roll in row['ufm_roll_numbers']:
+                    ufm_roll_numbers_details.append({
+                        "roll_number": ufm_roll,
+                        "paper_code": paper_code,
+                        "paper_name": paper_name,
+                        "room_num": room,
+                        "display": f"{ufm_roll} - {room} - {paper_code} ({paper_name})"
+                    })
+
+            if not ufm_roll_numbers_details:
+                st.info("No UFM cases found for the selected date and shift.")
+            else:
+                ufm_options = [d["display"] for d in ufm_roll_numbers_details]
+                selected_ufm_display = st.multiselect(
+                    "Select UFM Roll Number(s) to Generate Form",
+                    options=ufm_options,
+                    key="select_ufm_roll_for_form"
+                )
+
+                if st.button("Generate UFM Form(s)"):
+                    if not selected_ufm_display:
+                        st.warning("Please select at least one UFM roll number.")
+                    else:
+                        all_generated_forms = []
+                        for display_string in selected_ufm_display:
+                            # Find the corresponding detail dictionary
+                            selected_detail = next(item for item in ufm_roll_numbers_details if item["display"] == display_string)
+
+                            ufm_roll = selected_detail["roll_number"]
+                            ufm_paper_code = selected_detail["paper_code"]
+                            ufm_paper_name = selected_detail["paper_name"]
+
+                            # Get the actual UFM form generation function
+                            generate_ufm_form_func = generate_ufm_print_form(
+                                ufm_roll, 
+                                attestation_df, 
+                                assigned_seats_df, 
+                                timetable,
+                                # Pass context for accurate data retrieval
+                                selected_ufm_report_date,
+                                selected_ufm_report_shift,
+                                ufm_paper_code,
+                                ufm_paper_name
+                            )
+
+                            if "Error:" in generate_ufm_form_func:
+                                st.error(generate_ufm_form_func)
+                            else:
+                                all_generated_forms.append(generate_ufm_form_func)
+                                st.subheader(f"UFM Form for Roll Number: {ufm_roll}")
+                                st.text_area(f"Form for {ufm_roll}", generate_ufm_form_func, height=600)
+
+                                # Download button for individual UFM form
+                                ufm_file_name = f"UFM_Form_{ufm_roll}_{selected_ufm_report_date.replace('-', '')}_{ufm_paper_code}.txt"
+                                st.download_button(
+                                    label=f"Download Form for {ufm_roll}",
+                                    data=generate_ufm_form_func.encode('utf-8'),
+                                    file_name=ufm_file_name,
+                                    mime="text/plain",
+                                    key=f"download_ufm_{ufm_roll}"
+                                )
+                                st.markdown("---") # Separator between forms
+
+                        if len(all_generated_forms) > 1:
+                            combined_forms_text = "\n\n" + "-"*50 + "\n\n".join(all_generated_forms)
+                            combined_file_name = f"Combined_UFM_Forms_{selected_ufm_report_date.replace('-', '')}_{selected_ufm_report_shift}.txt"
+                            st.download_button(
+                                label="Download All Selected UFM Forms (Combined)",
+                                data=combined_forms_text.encode('utf-8'),
+                                file_name=combined_file_name,
+                                mime="text/plain",
+                                key="download_all_ufm_forms"
+                            )
+
+
+        elif cs_panel_option == "View Full Timetable": # New section for CS timetable view
+            st.subheader("Full Examination Timetable")
+            if timetable.empty:
+                st.warning("Timetable data is missing. Please upload it via the Admin Panel.")
+            else:
+                st.dataframe(timetable)
+
+        elif cs_panel_option == "Room Chart Report": # New Room Chart Report section for CS
+            st.subheader("📄 Room Chart Report")
+            st.info("Generate a detailed room chart showing student seating arrangements for a specific exam session.")
+
+            if sitting_plan.empty or timetable.empty or assigned_seats_df.empty:
+                st.warning("Please upload 'sitting_plan.csv', 'timetable.csv', and ensure seats are assigned via 'Assign Rooms & Seats to Students' (Admin Panel) to generate this report.")
+                st.stop() # Use st.stop() to halt execution if critical data is missing
+            
+            # date and shift filters for the room chart
+            chart_date_options = sorted(timetable["date"].dropna().unique())
+            chart_shift_options = sorted(timetable["shift"].dropna().unique())
+
+            if not chart_date_options or not chart_shift_options:
+                st.info("No exam dates or shifts found in the timetable to generate a room chart.")
+                st.stop() # Use st.stop() to halt execution if no options
+
+            selected_chart_date = st.selectbox("Select date", chart_date_options, key="cs_room_chart_date")
+            selected_chart_shift = st.selectbox("Select shift", chart_shift_options, key="cs_room_chart_shift")
+
+            if st.button("Generate Room Chart"):
+                with st.spinner("Generating room chart..."):
+                    # The generate_room_chart_report function now returns a string message if there's an error
+                    room_chart_output = generate_room_chart_report(selected_chart_date, selected_chart_shift, sitting_plan, assigned_seats_df, timetable)
+                    
+                    # Check if the output is an error message (string) or the actual chart data
+                    if room_chart_output and "Error:" in room_chart_output:
+                        st.error(room_chart_output) # Display the error message
+                    elif room_chart_output:
+                        st.text_area("Generated Room Chart", room_chart_output, height=600)
+                        
+                        # Download button
+                        file_name = f"room_chart_{selected_chart_date}_{selected_chart_shift}.csv"
+                        st.download_button(
+                            label="Download Room Chart as CSV",
+                            data=room_chart_output.encode('utf-8'),
+                            file_name=file_name,
+                            mime="text/csv",
+                        )
+                    else:
+                        st.warning("Could not generate room chart. Please ensure data is complete and assignments are made.")
+
+    else:
+        st.warning("Enter valid Centre Superintendent credentials.")
