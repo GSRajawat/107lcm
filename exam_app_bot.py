@@ -33,6 +33,37 @@ except KeyError:
     st.error("Supabase secrets not found. Please configure `supabase.url` and `supabase.key` in your secrets.toml file.")
     st.stop()
 
+import os
+import shutil
+import streamlit as st
+
+def clear_folder(folder_path):
+    """Deletes all files in the specified folder."""
+    if os.path.exists(folder_path):
+        for filename in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path) # Removes a file or a link
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path) # Removes a directory and all its contents
+                st.success(f"Removed: {filename}")
+            except Exception as e:
+                st.error(f"Failed to delete {filename}. Reason: {e}")
+    else:
+        st.warning(f"Folder not found: {folder_path}")
+
+# Example Usage in your app:
+st.title("File Cleanup Utility")
+
+# Define the folder you want to clean (e.g., a 'temp_files' subfolder)
+folder_to_clean = "temp_files"
+# Ensure the directory exists (optional, but useful if it might not have been created yet)
+os.makedirs(folder_to_clean, exist_ok=True)
+
+if st.button("Delete all files in the folder"):
+    clear_folder(folder_to_clean)
+    st.write("Folder cleanup initiated.")
 
 # --- Supabase Helper Functions (Moved to top for proper definition scope) ---
 
