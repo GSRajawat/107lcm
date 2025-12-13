@@ -3991,7 +3991,9 @@ elif menu == "Admin Panel":
                         st.success("🎉 All tables successfully downloaded as CSV files!")
                     else:
                         st.warning("⚠️ Some tables could not be downloaded. Check the messages above.")
-
+            if st.button("Clear All Caches"):
+                st.cache_data.clear()
+                st.success("Caches cleared!")
             if st.button("🛑 Stop (Reset and Re-upload All CSVs)"):
                 with st.spinner("Deleting all Supabase table rows..."):
                     # UPDATED: Added 'prep_closing_assignments' and 'global_settings' to delete order
