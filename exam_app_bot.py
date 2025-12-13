@@ -37,33 +37,28 @@ import os
 import shutil
 import streamlit as st
 
-def clear_folder(folder_path):
-    """Deletes all files in the specified folder."""
-    if os.path.exists(folder_path):
-        for filename in os.listdir(folder_path):
-            file_path = os.path.join(folder_path, filename)
-            try:
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path) # Removes a file or a link
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path) # Removes a directory and all its contents
-                st.success(f"Removed: {filename}")
-            except Exception as e:
-                st.error(f"Failed to delete {filename}. Reason: {e}")
-    else:
-        st.warning(f"Folder not found: {folder_path}")
+# Add this function to your script (e.g., near your other Supabase helper functions)
 
-# Example Usage in your app:
-st.title("File Cleanup Utility")
+def delete_all_data_from_table(table_name):
+    """
+    Deletes all records from the specified Supabase table.
+    """
+    if not supabase:
+        return f"Error: Supabase client not initialized."
+    
+    try:
+        # Use .delete().gt('id', 0) to delete ALL rows efficiently.
+        # This means "delete all rows where the 'id' is greater than 0" (i.e., everything).
+        response = supabase.table(table_name).delete().gt('id', 0).execute()
+        
+        # Check for error in the response
+        if response.data is None:
+             return f"Error deleting data from {table_name}: {response.error}"
 
-# Define the folder you want to clean (e.g., a 'temp_files' subfolder)
-folder_to_clean = "temp_files"
-# Ensure the directory exists (optional, but useful if it might not have been created yet)
-os.makedirs(folder_to_clean, exist_ok=True)
-
-if st.button("Delete all files in the folder"):
-    clear_folder(folder_to_clean)
-    st.write("Folder cleanup initiated.")
+        st.success(f"Successfully deleted {len(response.data)} records from the '{table_name}' table.")
+        return None # No error
+    except Exception as e:
+        return f"An exception occurred while deleting data from {table_name}: {e}"
 
 # --- Supabase Helper Functions (Moved to top for proper definition scope) ---
 
@@ -4022,9 +4017,7 @@ elif menu == "Admin Panel":
                         st.success("🎉 All tables successfully downloaded as CSV files!")
                     else:
                         st.warning("⚠️ Some tables could not be downloaded. Check the messages above.")
-            if st.button("Clear All Caches"):
-                st.cache_data.clear()
-                st.success("Caches cleared!")
+            
             if st.button("🛑 Stop (Reset and Re-upload All CSVs)"):
                 with st.spinner("Deleting all Supabase table rows..."):
                     # UPDATED: Added 'prep_closing_assignments' and 'global_settings' to delete order
@@ -4210,7 +4203,34 @@ elif menu == "Admin Panel":
                 st.session_state.debug_eligible_members = all_eligible_members
                 
                 st.rerun()
-
+            # Example of where to put the button in your app, 
+            # for instance, inside the 'if is_cs_authenticated(cs_username, cs_password):' block:
+            
+            # --- Data Management Section ---
+            with st.expander("⚠️ Danger Zone: Delete Persistent Data"):
+                st.markdown("Use this section to permanently clear all saved data from the database.")
+                
+                # 🚨 CONFIRMATION STEP IS CRUCIAL 🚨
+                if st.button("🔴 Permanently Delete ALL ASSIGNED SEAT Data", help="This cannot be undone!"):
+                    # Ask for a final confirmation to prevent accidental deletion
+                    st.session_state['confirm_delete'] = True
+            
+            if 'confirm_delete' in st.session_state and st.session_state['confirm_delete']:
+                st.warning("ARE YOU ABSOLUTELY SURE? This will wipe the database table.")
+                if st.button("✅ YES, DELETE THE DATA NOW"):
+                    # Replace 'assigned_seats' with the actual table name you want to clear
+                    error_message = delete_all_data_from_table('assigned_seats') 
+                    
+                    if error_message:
+                        st.error(error_message)
+                    else:
+                        # Trigger a rerun to refresh the page and show the data is gone
+                        del st.session_state['confirm_delete']
+                        st.rerun()
+            
+                if st.button("❌ Cancel Deletion"):
+                    del st.session_state['confirm_delete']
+                    st.rerun()
             # --- Troubleshooting Section ---
             with st.expander("🛠️ Troubleshooting: Data Loading Status"):
                 st.write(f"**Eligible Members (from assignments):** {st.session_state.get('debug_eligible_members', [])}")
