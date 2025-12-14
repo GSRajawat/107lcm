@@ -4026,6 +4026,44 @@ elif menu == "Admin Panel":
                     delete_errors = []
                     for table in table_order:
                         try:
+                            supabase.table(table).delete().neq("id", 0).execute()  # delete all rows
+                        except Exception as e:
+                            delete_errors.append(f"❌ Error deleting from `{table}`: {str(e)}")
+
+                if delete_errors:
+                    st.error("\n".join(delete_errors))
+                else:
+                    st.success("✅ All existing Supabase table data deleted.")
+
+                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings' to upload mapping
+                    csv_table_mapping = {
+                        "timetable.csv": ("timetable", None),
+                        "sitting_plan.csv": ("sitting_plan", None), 
+                        "assigned_seats.csv": ("assigned_seats", None),
+                        "exam_team_members.csv": ("exam_team_members", None),
+                        "shift_assignments.csv": ("shift_assignments", None),
+                        "room_invigilator_assignments.csv": ("room_invigilator_assignments", None),
+                        "cs_reports.csv": ("cs_reports", None),
+                        "attestation_data_combined.csv": ("attestation_data_combined", None),
+                        "prep_closing_assignments.csv": ("prep_closing_assignments", None),
+                        "global_settings.csv": ("global_settings", None)
+                    }
+
+                    st.markdown("### 📤 Uploading all CSVs to Supabase...")
+                    for file, (table, keys) in csv_table_mapping.items():
+                        current_script_dir = os.path.dirname(os.path.abspath(__file__))
+                        full_path = os.path.join(current_script_dir, file)
+                        
+                        if os.path.exists(full_path):
+                            success, msg = upload_csv_to_supabase(table, full_path, unique_cols=keys)
+                        else:
+                            # Warning only (some files like global_settings might not exist locally yet)
+                            success, msg = False, f"File not found for upload: {full_path}"
+                        
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.warning(msg)
         elif admin_option == "Room Occupancy Report": 
             display_room_occupancy_report(sitting_plan, assigned_seats_df, timetable)
             
