@@ -4026,6 +4026,75 @@ elif menu == "Admin Panel":
                     delete_errors = []
                     for table in table_order:
                         try:
+        elif admin_option == "Room Occupancy Report": 
+            display_room_occupancy_report(sitting_plan, assigned_seats_df, timetable)
+            
+            st.markdown("---")
+            st.subheader("💾 Database Backup & Restore")
+            
+            if st.button("🚀 Start (Download All Tables as CSVs)"):
+                with st.spinner("Downloading all Supabase tables to CSV files..."):
+                    # Table to CSV filename mapping
+                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings'
+                    table_csv_mapping = {
+                        "timetable": "timetable.csv",
+                        "sitting_plan": "sitting_plan.csv",
+                        "assigned_seats": "assigned_seats.csv", 
+                        "exam_team_members": "exam_team_members.csv",
+                        "shift_assignments": "shift_assignments.csv",
+                        "room_invigilator_assignments": "room_invigilator_assignments.csv",
+                        "cs_reports": "cs_reports.csv",
+                        "attestation_data_combined": "attestation_data_combined.csv",
+                        "prep_closing_assignments": "prep_closing_assignments.csv",
+                        "global_settings": "global_settings.csv"
+                    }
+                    
+                    st.markdown("### 📥 Downloading all Supabase tables to CSV files...")
+                    download_success = True
+                    
+                    for table_name, csv_filename in table_csv_mapping.items():
+                        # For attestation, we need to handle the parent folder path
+                        if table_name == "attestation_data_combined":
+                            current_script_dir = os.path.dirname(os.path.abspath(__file__))
+                            parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
+                            full_path_attestation = os.path.join(parent_dir, csv_filename)
+                            # We use the helper but target the specific file path logic if needed, 
+                            # usually download_supabase_to_csv handles local dir. 
+                            # For this button, we usually just save to current dir for backup.
+                            success, msg = download_supabase_to_csv(table_name, csv_filename)
+                        else:
+                            success, msg = download_supabase_to_csv(table_name, csv_filename)
+                        
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.warning(msg)
+                            download_success = False
+                    
+                    if download_success:
+                        st.success("🎉 All tables successfully downloaded as CSV files!")
+                    else:
+                        st.warning("⚠️ Some tables could not be downloaded. Check the messages above.")
+
+            if st.button("🛑 Stop (Reset and Re-upload All CSVs)"):
+                with st.spinner("Deleting all Supabase table rows..."):
+                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings' to delete order
+                    table_order = [
+                        "cs_reports",
+                        "room_invigilator_assignments", 
+                        "shift_assignments",
+                        "exam_team_members",
+                        "assigned_seats",
+                        "sitting_plan",
+                        "timetable",
+                        "attestation_data_combined",
+                        "prep_closing_assignments",
+                        "global_settings"
+                    ]
+
+                    delete_errors = []
+                    for table in table_order:
+                        try:
                             supabase.table(table).delete().neq("id", 0).execute()  # delete all rows
                         except Exception as e:
                             delete_errors.append(f"❌ Error deleting from `{table}`: {str(e)}")
@@ -4063,7 +4132,7 @@ elif menu == "Admin Panel":
                         if success:
                             st.success(msg)
                         else:
-                            st.warning(msg)
+                            
 
         elif admin_option == "Remuneration Bill Generation":
             st.subheader("💰 Remuneration Bill Generation")
