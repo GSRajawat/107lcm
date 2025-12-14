@@ -1958,10 +1958,6 @@ def display_room_occupancy_report(sitting_plan_df, assigned_seats_df, timetable_
             st.info("No occupancy data generated.")
             
 # NEW FUNCTION: Generate Room Chart in specified format
-import pandas as pd
-import datetime
-import re # Make sure 're' is imported in the actual script scope
-
 def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_df, timetable_df):
     output_string_parts = []
 
@@ -2124,7 +2120,6 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
         output_string_parts.append("\n") # Add an extra newline between rooms
 
     return "".join(output_string_parts)
-
 # Function to generate UFM print form
 # Corrected function to generate UFM print form
 def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, timetable_df,
@@ -3046,31 +3041,33 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
             'Paper': data['type'],
             'Number of students': total_students_for_class_workers,
             'Conveyance': 0,
+            'Daily Total': 0,
             'SCS': '0 (0)',
             'CS': '0 (0)',
             'ACS': '0 (0)',
             'PI/API': '0 (0)',
             'Invigilators': '0 (0)'
         }
-        pi_api_count = 0
-        pi_api_rem = 0
+        
+        daily_total_rem = 0
         for role, values in data['roles'].items():
             if role == 'permanent_invigilator' or role == 'assistant_permanent_invigilator':
-                pi_api_count += values['count']
-                pi_api_rem += values['rem']
+                row_data['PI/API'] = f"{values['count']} ({int(values['rem'])})"
             elif role == 'senior_center_superintendent':
-                row_data['SCS'] = f"{values['count']} ({int(values['rem'])})"
+                 row_data['SCS'] = f"{values['count']} ({int(values['rem'])})"
             elif role == 'center_superintendent':
-                row_data['CS'] = f"{values['count']} ({int(values['rem'])})"
+                 row_data['CS'] = f"{values['count']} ({int(values['rem'])})"
             elif role == 'assistant_center_superintendent':
-                row_data['ACS'] = f"{values['count']} ({int(values['rem'])})"
-        row_data['PI/API'] = f"{pi_api_count} ({int(pi_api_rem)})"
-
+                 row_data['ACS'] = f"{values['count']} ({int(values['rem'])})"
+            daily_total_rem += values['rem']
+        
         if day in holiday_dates:
-            eligible_workers = sum(values['count'] for rk, values in data['roles'].items() if remuneration_rules.get(rk, {}).get('eligible_prep_close'))
-            holiday_conveyance = eligible_workers * manual_rates.get('holiday_conveyance_allowance_rate', 0)
+            total_workers = sum(d['count'] for d in data['roles'].values())
+            holiday_conveyance = total_workers * manual_rates.get('holiday_conveyance_allowance_rate', 0)
             row_data['Conveyance'] = int(holiday_conveyance)
+            daily_total_rem += holiday_conveyance
 
+        row_data['Daily Total'] = int(daily_total_rem)
         summary_data.append(row_data)
 
     exam_dates_from_df = set(df_detailed_remuneration['date'].unique())
@@ -3109,6 +3106,7 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
                 'PI/API': {'count': 0, 'total_rem': 0},
                 'Invigilators': {'count': 0, 'total_rem': 0}
             }
+            daily_total_rem = 0
             total_conveyance = 0
             
             for _, person_row in shift_data.iterrows():
@@ -3134,6 +3132,8 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
                     remuneration_summary['Invigilators']['count'] += 1
                     remuneration_summary['Invigilators']['total_rem'] += remuneration
             
+            daily_total_rem = sum(r['total_rem'] for r in remuneration_summary.values()) + total_conveyance
+            
             row_data = {
                 'date & shift': f"{date_str} ({shift})",
                 'Paper': papers_string,
@@ -3143,7 +3143,8 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
                 'ACS': f"{remuneration_summary['ACS']['count']} ({int(remuneration_summary['ACS']['total_rem'])})",
                 'PI/API': f"{remuneration_summary['PI/API']['count']} ({int(remuneration_summary['PI/API']['total_rem'])})",
                 'Invigilators': f"{remuneration_summary['Invigilators']['count']} ({int(remuneration_summary['Invigilators']['total_rem'])})",
-                'Conveyance': int(total_conveyance)
+                'Conveyance': int(total_conveyance),
+                'Daily Total': int(daily_total_rem)
             }
             summary_data.append(row_data)
 
@@ -3158,7 +3159,7 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
 
     total_students = df_summary['Number of students'].sum()
     total_conveyance = df_summary['Conveyance'].sum()
-    # removed Daily Total column aggregation
+    total_daily_total = df_summary['Daily Total'].sum()
 
     role_totals = {role: {'count': 0, 'rem': 0} for role in ['SCS', 'CS', 'ACS', 'PI/API', 'Invigilators']}
 
@@ -3182,12 +3183,13 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
         'ACS': f"{role_totals['ACS']['count']} ({int(role_totals['ACS']['rem'])})",
         'PI/API': f"{role_totals['PI/API']['count']} ({int(role_totals['PI/API']['rem'])})",
         'Invigilators': f"{role_totals['Invigilators']['count']} ({int(role_totals['Invigilators']['rem'])})",
-        'Conveyance': int(total_conveyance)
+        'Conveyance': int(total_conveyance),
+        'Daily Total': int(total_daily_total)
     }
 
     df_summary = pd.concat([df_summary, pd.DataFrame([total_row])], ignore_index=True)
 
-    final_cols = ['date & shift', 'Paper', 'Number of students', 'SCS', 'CS', 'ACS', 'PI/API', 'Invigilators', 'Conveyance']
+    final_cols = ['date & shift', 'Paper', 'Number of students', 'SCS', 'CS', 'ACS', 'PI/API', 'Invigilators', 'Conveyance', 'Daily Total']
     return df_summary[final_cols]
 def add_total_row(df):
     """Add a total row to the dataframe"""
@@ -4007,151 +4009,6 @@ elif menu == "Admin Panel":
                         st.success("🎉 All tables successfully downloaded as CSV files!")
                     else:
                         st.warning("⚠️ Some tables could not be downloaded. Check the messages above.")
-                
-                with st.spinner("Deleting all Supabase table rows..."):
-                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings' to delete order
-                    table_order = [
-                        "cs_reports",
-                        "room_invigilator_assignments", 
-                        "shift_assignments",
-                        "exam_team_members",
-                        "assigned_seats",
-                        "sitting_plan",
-                        "timetable",
-                        "attestation_data_combined",
-                        "prep_closing_assignments",
-                        "global_settings"
-                    ]
-
-                    delete_errors = []
-                    for table in table_order:
-                        try:
-                            supabase.table(table).delete().neq("id", 0).execute()  # delete all rows
-                        except Exception as e:
-                            delete_errors.append(f"❌ Error deleting from `{table}`: {str(e)}")
-
-                if delete_errors:
-                    st.error("\n".join(delete_errors))
-                else:
-                    st.success("✅ All existing Supabase table data deleted.")
-
-                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings' to upload mapping
-                    csv_table_mapping = {
-                        "timetable.csv": ("timetable", None),
-                        "sitting_plan.csv": ("sitting_plan", None), 
-                        "assigned_seats.csv": ("assigned_seats", None),
-                        "exam_team_members.csv": ("exam_team_members", None),
-                        "shift_assignments.csv": ("shift_assignments", None),
-                        "room_invigilator_assignments.csv": ("room_invigilator_assignments", None),
-                        "cs_reports.csv": ("cs_reports", None),
-                        "attestation_data_combined.csv": ("attestation_data_combined", None),
-                        "prep_closing_assignments.csv": ("prep_closing_assignments", None),
-                        "global_settings.csv": ("global_settings", None)
-                    }
-
-                    st.markdown("### 📤 Uploading all CSVs to Supabase...")
-                    for file, (table, keys) in csv_table_mapping.items():
-                        current_script_dir = os.path.dirname(os.path.abspath(__file__))
-                        full_path = os.path.join(current_script_dir, file)
-                        
-                        if os.path.exists(full_path):
-                            success, msg = upload_csv_to_supabase(table, full_path, unique_cols=keys)
-                        else:
-                            # Warning only (some files like global_settings might not exist locally yet)
-                            success, msg = False, f"File not found for upload: {full_path}"
-                        
-                        if success:
-                            st.success(msg)
-                        else:
-                            st.warning(msg)
-        elif admin_option == "Room Occupancy Report": 
-            display_room_occupancy_report(sitting_plan, assigned_seats_df, timetable)
-            
-            st.markdown("---")
-            st.subheader("💾 Database Backup & Restore")
-            
-            if st.button("🚀 Start (Download All Tables as CSVs)"):
-                with st.spinner("Downloading all Supabase tables to CSV files..."):
-                    # Table to CSV filename mapping
-                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings'
-                    table_csv_mapping = {
-                        "timetable": "timetable.csv",
-                        "sitting_plan": "sitting_plan.csv",
-                        "assigned_seats": "assigned_seats.csv", 
-                        "exam_team_members": "exam_team_members.csv",
-                        "shift_assignments": "shift_assignments.csv",
-                        "room_invigilator_assignments": "room_invigilator_assignments.csv",
-                        "cs_reports": "cs_reports.csv",
-                        "attestation_data_combined": "attestation_data_combined.csv",
-                        "prep_closing_assignments": "prep_closing_assignments.csv",
-                        "global_settings": "global_settings.csv"
-                    }
-                    
-                    st.markdown("### 📥 Downloading all Supabase tables to CSV files...")
-                    download_success = True
-                    
-                    for table_name, csv_filename in table_csv_mapping.items():
-                        # For attestation, we need to handle the parent folder path
-                        if table_name == "attestation_data_combined":
-            st.markdown("---")
-            st.subheader("Maintenance")
-            if st.button("🔄 Reset All Assigned Seats (Clear assigned_seats.csv)", key="reset_button"):
-                if os.path.exists(ASSIGNED_SEATS_FILE):
-                    os.remove(ASSIGNED_SEATS_FILE)
-                    st.success("`assigned_seats.csv` has been deleted. All assignments reset.")
-                else:
-                    st.info("No `assigned_seats.csv` found to reset.")
-                st.rerun() # Rerun the app to reflect the changes
-
-        elif admin_option == "Room Occupancy Report": 
-            display_room_occupancy_report(sitting_plan, assigned_seats_df, timetable)
-            
-            st.markdown("---")
-            st.subheader("💾 Database Backup & Restore")
-            
-            if st.button("🚀 Start (Download All Tables as CSVs)"):
-                with st.spinner("Downloading all Supabase tables to CSV files..."):
-                    # Table to CSV filename mapping
-                    # UPDATED: Added 'prep_closing_assignments' and 'global_settings'
-                    table_csv_mapping = {
-                        "timetable": "timetable.csv",
-                        "sitting_plan": "sitting_plan.csv",
-                        "assigned_seats": "assigned_seats.csv", 
-                        "exam_team_members": "exam_team_members.csv",
-                        "shift_assignments": "shift_assignments.csv",
-                        "room_invigilator_assignments": "room_invigilator_assignments.csv",
-                        "cs_reports": "cs_reports.csv",
-                        "attestation_data_combined": "attestation_data_combined.csv",
-                        "prep_closing_assignments": "prep_closing_assignments.csv",
-                        "global_settings": "global_settings.csv"
-                    }
-                    
-                    st.markdown("### 📥 Downloading all Supabase tables to CSV files...")
-                    download_success = True
-                    
-                    for table_name, csv_filename in table_csv_mapping.items():
-                        # For attestation, we need to handle the parent folder path
-                        if table_name == "attestation_data_combined":
-                            current_script_dir = os.path.dirname(os.path.abspath(__file__))
-                            parent_dir = os.path.abspath(os.path.join(current_script_dir, os.pardir))
-                            full_path_attestation = os.path.join(parent_dir, csv_filename)
-                            # We use the helper but target the specific file path logic if needed, 
-                            # usually download_supabase_to_csv handles local dir. 
-                            # For this button, we usually just save to current dir for backup.
-                            success, msg = download_supabase_to_csv(table_name, csv_filename)
-                        else:
-                            success, msg = download_supabase_to_csv(table_name, csv_filename)
-                        
-                        if success:
-                            st.success(msg)
-                        else:
-                            st.warning(msg)
-                            download_success = False
-                    
-                    if download_success:
-                        st.success("🎉 All tables successfully downloaded as CSV files!")
-                    else:
-                        st.warning("⚠️ Some tables could not be downloaded. Check the messages above.")
 
             if st.button("🛑 Stop (Reset and Re-upload All CSVs)"):
                 with st.spinner("Deleting all Supabase table rows..."):
@@ -4210,7 +4067,6 @@ elif menu == "Admin Panel":
                             st.success(msg)
                         else:
                             st.warning(msg)
-                            
 
         elif admin_option == "Remuneration Bill Generation":
             st.subheader("💰 Remuneration Bill Generation")
@@ -4528,27 +4384,30 @@ elif menu == "Admin Panel":
 
                         st.markdown("### Individual Remuneration Bills")
                         if not df_individual_bills.empty:
-                            st.dataframe(df_individual_bills, use_container_width=True)
+                            df_individual_bills_with_total = add_total_row(df_individual_bills)
+                            st.dataframe(df_individual_bills_with_total, use_container_width=True)
                         else:
                             st.info("No individual bills generated.")
 
                         st.markdown("### Role-wise Summary Matrix")
                         if not df_role_summary_matrix.empty:
-                            st.dataframe(df_role_summary_matrix, use_container_width=True)
+                            df_role_summary_matrix_with_total = add_total_row(df_role_summary_matrix)
+                            st.dataframe(df_role_summary_matrix_with_total, use_container_width=True)
                         else:
                             st.info("No role-wise summary generated.")
 
                         st.markdown("### Class 3 & Class 4 Worker Bills")
                         if not df_class_3_4_final_bills.empty:
-                            st.dataframe(df_class_3_4_final_bills, use_container_width=True)
+                            df_class_3_4_final_bills_with_total = add_total_row(df_class_3_4_final_bills)
+                            st.dataframe(df_class_3_4_final_bills_with_total, use_container_width=True)
                         else:
                             st.info("No Class 3 & 4 worker bills generated.")
                         
                         if not df_individual_bills.empty or not df_role_summary_matrix.empty or not df_class_3_4_final_bills.empty:
                             excel_file_buffer, excel_filename = save_bills_to_excel(
-                                df_individual_bills, 
-                                df_role_summary_matrix, 
-                                df_class_3_4_final_bills
+                                df_individual_bills_with_total, 
+                                df_role_summary_matrix_with_total, 
+                                df_class_3_4_final_bills_with_total
                             )
                             st.download_button(
                                 label="Download All Remuneration Bills as Excel",
