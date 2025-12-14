@@ -4099,6 +4099,13 @@ elif menu == "Admin Panel":
                         except Exception as e:
                             delete_errors.append(f"❌ Error deleting from `{table}`: {str(e)}")
 
+                    delete_errors = []
+                    for table in table_order:
+                        try:
+                            supabase.table(table).delete().neq("id", 0).execute()  # delete all rows
+                        except Exception as e:
+                            delete_errors.append(f"❌ Error deleting from `{table}`: {str(e)}")
+
                 if delete_errors:
                     st.error("\n".join(delete_errors))
                 else:
@@ -4132,6 +4139,7 @@ elif menu == "Admin Panel":
                         if success:
                             st.success(msg)
                         else:
+                            st.warning(msg)
                             
 
         elif admin_option == "Remuneration Bill Generation":
