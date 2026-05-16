@@ -1988,7 +1988,6 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
     unique_classes = relevant_tt_exams['Class'].dropna().astype(str).str.strip().unique()
     class_summary_header = ""
     if len(unique_classes) == 1:
-        # Assuming the year is the current year for the header formatting
         class_summary_header = f"{unique_classes[0]} Examination {datetime.datetime.now().year}"
     elif len(unique_classes) > 1:
         class_summary_header = f"Various Classes Examination {datetime.datetime.now().year}"
@@ -1996,7 +1995,7 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
         class_summary_header = f"Examination {datetime.datetime.now().year}"
 
     # Static header lines
-    output_string_parts.append(",,,,,,,,,\nJIWAJI UNIVERSITY GWALIOR,,,,,,,,,\n\"Examination Centre :- Government Law College, Morena (MP) Code :- G107 \",,,,,,,,,\n")
+    output_string_parts.append(",,,,,,,,,\nजीवाजी विश्वविद्यालय ग्वालियर ,,,,,,,,,\n\"परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107 \",,,,,,,,,\n")
     output_string_parts.append(f"{class_summary_header},,,,,,,,,\n")
     output_string_parts.append(f"date :- ,,{date_str},,shift :-,{shift},,Time :- ,,\n")
 
@@ -2011,6 +2010,7 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
         return "".join(output_string_parts)
 
     # Merge with timetable to get full paper names and Class
+    # Ensure paper codes are comparable (e.g., int vs str)
     assigned_students_for_session['Paper Code'] = assigned_students_for_session['Paper Code'].astype(str)
     timetable_df['Paper Code'] = timetable_df['Paper Code'].astype(str)
 
@@ -2019,29 +2019,20 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
         timetable_df[['Paper Code', 'Paper Name', 'Class']], # Need Class for the summary line
         on='Paper Code',
         how='left',
-        suffixes=('', '_tt') 
+        suffixes=('', '_tt') # Suffixes are applied only if column names are duplicated in both DFs
     )
-    
-    # Use Paper Name from timetable if available
+    # Use Paper Name from timetable if available, otherwise from assigned_seats_df
     assigned_students_for_session['Paper Name'] = assigned_students_for_session['Paper Name_tt'].fillna(assigned_students_for_session['Paper Name'])
     
-    # Use Class from timetable if available
+    # Corrected line: Access 'Class' directly, as it would not have been suffixed if not present in assigned_seats_df
+    # The 'Class' column from timetable_df is merged directly if assigned_seats_df doesn't have one,
+    # otherwise it would be 'Class_tt'. We need to check which one exists.
     if 'Class_tt' in assigned_students_for_session.columns:
         assigned_students_for_session['Class'] = assigned_students_for_session['Class_tt'].fillna('')
-    elif 'Class' not in assigned_students_for_session.columns:
-        assigned_students_for_session['Class'] = '' 
-
-    
-    # ----------------------------------------------------------------------
-    # *** CORRECTION TO REMOVE DUPLICATE STUDENT ENTRIES ***
-    # This removes redundant rows where the same student/paper/seat combination exists, 
-    # which was causing the duplicate entries in the final roll number list and the inflated total.
-    assigned_students_for_session.drop_duplicates(
-        subset=["Roll Number", "Paper Code", "Room Number", "Seat Number"],
-        inplace=True
-    )
-    # ----------------------------------------------------------------------
-
+    elif 'Class' in assigned_students_for_session.columns: # Fallback if 'Class' was already in assigned_seats_df
+        assigned_students_for_session['Class'] = assigned_students_for_session['Class'].fillna('')
+    else:
+        assigned_students_for_session['Class'] = '' # Default if neither exists, though this should be caught by earlier checks
 
     # Sort by Room Number, then by Seat Number
     def sort_seat_number_key(seat):
@@ -2063,11 +2054,10 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
     students_by_room = assigned_students_for_session.groupby('Room Number')
 
     for room_num, room_data in students_by_room:
-        output_string_parts.append(f"\n,,,Room :-,{room_num}  ,,,,\n") # Room header
+        output_string_parts.append(f"\n,,,कक्ष  :-,{room_num}  ,,,,\n") # Room header
         
         # Get unique papers for this room and session for the "परीक्षा का नाम" line
-        # Use .copy() to avoid SettingWithCopyWarning
-        unique_papers_in_room = room_data[['Class', 'Paper Code', 'Paper Name']].drop_duplicates().copy()
+        unique_papers_in_room = room_data[['Class', 'Paper Code', 'Paper Name']].drop_duplicates()
         
         for _, paper_row in unique_papers_in_room.iterrows():
             paper_class = str(paper_row['Class']).strip()
@@ -2079,20 +2069,19 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
                 (room_data['Paper Code'].astype(str).str.strip() == paper_code) &
                 (room_data['Paper Name'].astype(str).str.strip() == paper_name)
             ]
-            num_students_for_paper = len(students_for_this_paper_in_room) # This is now the corrected unique count
+            num_students_for_paper = len(students_for_this_paper_in_room)
 
             output_string_parts.append(
-                f"Name of Exam,,,Paper,,,,Answer Sheets,,\n"
-                f",,,,,,,Received ,Used ,Balance \n"
-                f"{paper_class} - Regular - Regular,,,{paper_code} - {paper_name}        ,,,,{num_students_for_paper},,\n" # Assuming Regular for now
+                f"परीक्षा का नाम (Class - mode - Type),,,प्रश्न पत्र (paper- paper code - paper name),,,,उत्तर पुस्तिकाएं (number of students),,\n"
+                f",,,,,,,प्राप्त ,प्रयुक्त ,शेष \n"
+                f"{paper_class} - Regular - Regular,,,{paper_code} - {paper_name}        ,,,,{num_students_for_paper},,\n" # Assuming Regular for now
             )
             output_string_parts.append(",,,,,,,,,\n") # Blank line
 
         output_string_parts.append(",,,,,,,,,\n") # Blank line
-        # len(room_data) is now the correct, non-duplicated total
-        output_string_parts.append(f",,,Total,,,,{len(room_data)},,\n") 
+        output_string_parts.append(f",,,Total,,,,{len(room_data)},,\n") # Total for the room
         output_string_parts.append(",,,,,,,,,\n") # Blank line
-        output_string_parts.append("roll number - (room number-seat number),,,,,,,,,\n")
+        output_string_parts.append("roll number - (room number-seat number) - 20 letters of paper name,,,,,,,,,\n")
 
         # Now add the roll number lines
         current_line_students = []
@@ -2105,9 +2094,8 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
             # Truncate paper name to first 20 characters
             truncated_paper_name = paper_name_display[:20]
 
-            # This line appends the student once (no duplication here)
-            student_entry = f"{roll_num}( Room-{room_num_display}-Seat-{seat_num_display})-{truncated_paper_name}"
-            current_line_students.append(student_entry) 
+            student_entry = f"{roll_num}( कक्ष-{room_num_display}-सीट-{seat_num_display})-{truncated_paper_name}"
+            current_line_students.append(student_entry)
 
             if len(current_line_students) == 10:
                 output_string_parts.append(",".join(current_line_students) + "\n")
@@ -2120,6 +2108,7 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
         output_string_parts.append("\n") # Add an extra newline between rooms
 
     return "".join(output_string_parts)
+
 # Function to generate UFM print form
 # Corrected function to generate UFM print form
 def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, timetable_df,
@@ -3041,33 +3030,31 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
             'Paper': data['type'],
             'Number of students': total_students_for_class_workers,
             'Conveyance': 0,
-            'Daily Total': 0,
             'SCS': '0 (0)',
             'CS': '0 (0)',
             'ACS': '0 (0)',
             'PI/API': '0 (0)',
             'Invigilators': '0 (0)'
         }
-        
-        daily_total_rem = 0
+        pi_api_count = 0
+        pi_api_rem = 0
         for role, values in data['roles'].items():
             if role == 'permanent_invigilator' or role == 'assistant_permanent_invigilator':
-                row_data['PI/API'] = f"{values['count']} ({int(values['rem'])})"
+                pi_api_count += values['count']
+                pi_api_rem += values['rem']
             elif role == 'senior_center_superintendent':
-                 row_data['SCS'] = f"{values['count']} ({int(values['rem'])})"
+                row_data['SCS'] = f"{values['count']} ({int(values['rem'])})"
             elif role == 'center_superintendent':
-                 row_data['CS'] = f"{values['count']} ({int(values['rem'])})"
+                row_data['CS'] = f"{values['count']} ({int(values['rem'])})"
             elif role == 'assistant_center_superintendent':
-                 row_data['ACS'] = f"{values['count']} ({int(values['rem'])})"
-            daily_total_rem += values['rem']
-        
-        if day in holiday_dates:
-            total_workers = sum(d['count'] for d in data['roles'].values())
-            holiday_conveyance = total_workers * manual_rates.get('holiday_conveyance_allowance_rate', 0)
-            row_data['Conveyance'] = int(holiday_conveyance)
-            daily_total_rem += holiday_conveyance
+                row_data['ACS'] = f"{values['count']} ({int(values['rem'])})"
+        row_data['PI/API'] = f"{pi_api_count} ({int(pi_api_rem)})"
 
-        row_data['Daily Total'] = int(daily_total_rem)
+        if day in holiday_dates:
+            eligible_workers = sum(values['count'] for rk, values in data['roles'].items() if remuneration_rules.get(rk, {}).get('eligible_prep_close'))
+            holiday_conveyance = eligible_workers * manual_rates.get('holiday_conveyance_allowance_rate', 0)
+            row_data['Conveyance'] = int(holiday_conveyance)
+
         summary_data.append(row_data)
 
     exam_dates_from_df = set(df_detailed_remuneration['date'].unique())
@@ -3106,7 +3093,6 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
                 'PI/API': {'count': 0, 'total_rem': 0},
                 'Invigilators': {'count': 0, 'total_rem': 0}
             }
-            daily_total_rem = 0
             total_conveyance = 0
             
             for _, person_row in shift_data.iterrows():
@@ -3132,8 +3118,6 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
                     remuneration_summary['Invigilators']['count'] += 1
                     remuneration_summary['Invigilators']['total_rem'] += remuneration
             
-            daily_total_rem = sum(r['total_rem'] for r in remuneration_summary.values()) + total_conveyance
-            
             row_data = {
                 'date & shift': f"{date_str} ({shift})",
                 'Paper': papers_string,
@@ -3143,8 +3127,7 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
                 'ACS': f"{remuneration_summary['ACS']['count']} ({int(remuneration_summary['ACS']['total_rem'])})",
                 'PI/API': f"{remuneration_summary['PI/API']['count']} ({int(remuneration_summary['PI/API']['total_rem'])})",
                 'Invigilators': f"{remuneration_summary['Invigilators']['count']} ({int(remuneration_summary['Invigilators']['total_rem'])})",
-                'Conveyance': int(total_conveyance),
-                'Daily Total': int(daily_total_rem)
+                'Conveyance': int(total_conveyance)
             }
             summary_data.append(row_data)
 
@@ -3159,7 +3142,7 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
 
     total_students = df_summary['Number of students'].sum()
     total_conveyance = df_summary['Conveyance'].sum()
-    total_daily_total = df_summary['Daily Total'].sum()
+    # removed Daily Total column aggregation
 
     role_totals = {role: {'count': 0, 'rem': 0} for role in ['SCS', 'CS', 'ACS', 'PI/API', 'Invigilators']}
 
@@ -3183,13 +3166,12 @@ def generate_role_summary_matrix_by_date(df_detailed_remuneration, remuneration_
         'ACS': f"{role_totals['ACS']['count']} ({int(role_totals['ACS']['rem'])})",
         'PI/API': f"{role_totals['PI/API']['count']} ({int(role_totals['PI/API']['rem'])})",
         'Invigilators': f"{role_totals['Invigilators']['count']} ({int(role_totals['Invigilators']['rem'])})",
-        'Conveyance': int(total_conveyance),
-        'Daily Total': int(total_daily_total)
+        'Conveyance': int(total_conveyance)
     }
 
     df_summary = pd.concat([df_summary, pd.DataFrame([total_row])], ignore_index=True)
 
-    final_cols = ['date & shift', 'Paper', 'Number of students', 'SCS', 'CS', 'ACS', 'PI/API', 'Invigilators', 'Conveyance', 'Daily Total']
+    final_cols = ['date & shift', 'Paper', 'Number of students', 'SCS', 'CS', 'ACS', 'PI/API', 'Invigilators', 'Conveyance']
     return df_summary[final_cols]
 def add_total_row(df):
     """Add a total row to the dataframe"""
@@ -4384,30 +4366,27 @@ elif menu == "Admin Panel":
 
                         st.markdown("### Individual Remuneration Bills")
                         if not df_individual_bills.empty:
-                            df_individual_bills_with_total = add_total_row(df_individual_bills)
-                            st.dataframe(df_individual_bills_with_total, use_container_width=True)
+                            st.dataframe(df_individual_bills, use_container_width=True)
                         else:
                             st.info("No individual bills generated.")
 
                         st.markdown("### Role-wise Summary Matrix")
                         if not df_role_summary_matrix.empty:
-                            df_role_summary_matrix_with_total = add_total_row(df_role_summary_matrix)
-                            st.dataframe(df_role_summary_matrix_with_total, use_container_width=True)
+                            st.dataframe(df_role_summary_matrix, use_container_width=True)
                         else:
                             st.info("No role-wise summary generated.")
 
                         st.markdown("### Class 3 & Class 4 Worker Bills")
                         if not df_class_3_4_final_bills.empty:
-                            df_class_3_4_final_bills_with_total = add_total_row(df_class_3_4_final_bills)
-                            st.dataframe(df_class_3_4_final_bills_with_total, use_container_width=True)
+                            st.dataframe(df_class_3_4_final_bills, use_container_width=True)
                         else:
                             st.info("No Class 3 & 4 worker bills generated.")
                         
                         if not df_individual_bills.empty or not df_role_summary_matrix.empty or not df_class_3_4_final_bills.empty:
                             excel_file_buffer, excel_filename = save_bills_to_excel(
-                                df_individual_bills_with_total, 
-                                df_role_summary_matrix_with_total, 
-                                df_class_3_4_final_bills_with_total
+                                df_individual_bills, 
+                                df_role_summary_matrix, 
+                                df_class_3_4_final_bills
                             )
                             st.download_button(
                                 label="Download All Remuneration Bills as Excel",
