@@ -957,7 +957,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df
         students_by_room[room].append(student)
 
     for room_num in sorted(students_by_room.keys()):
-        output_string_parts.append(f" कक्ष :-{room_num}") # Added space for consistency
+        output_string_parts.append(f" Room :-{room_num}") # Added space for consistency
         current_room_students = students_by_room[room_num]
 
         num_cols = 10
@@ -970,7 +970,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df
             for student in block_students:
                 # Modified formatting here: removed space after '(' and added '-' before paper_name
                 single_line_students.append(
-                    f"{student['roll_num']}( कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
+                    f"{student['roll_num']}( Room-{student['room_num']}-Seat-{student['seat_num_display']})-{student['paper_name']}"
                 )
 
             output_string_parts.append("".join(single_line_students)) # Join directly without spaces
@@ -992,7 +992,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df
 
     # Excel Student Data Section (now each block of 10 students is one row, each student is one cell)
     for room_num in sorted(students_by_room.keys()):
-        excel_output_data.append([f" कक्ष :-{room_num}"]) # Added space for consistency
+        excel_output_data.append([f" Room :-{room_num}"]) # Added space for consistency
         current_room_students = students_by_room[room_num]
 
         num_cols = 10
@@ -1005,7 +1005,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df
             for k, student in enumerate(block_students):
                 # Each cell contains the full student string, modified formatting
                 excel_row_for_students[k] = (
-                    f"{student['roll_num']}( कक्ष-{student['room_num']}-सीट-{student['seat_num_display']})-{student['paper_name']}"
+                    f"{student['roll_num']}( Room-{student['room_num']}-Seat-{student['seat_num_display']})-{student['paper_name']}"
                 )
 
             excel_output_data.append(excel_row_for_students)
@@ -1223,7 +1223,7 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
         single_line_students = []
         for student in block_students:
             single_line_students.append(
-                f"{student['roll_num']}( कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
+                f"{student['roll_num']}( Room-{student['room_num']}-Seat-{student['seat_num_display']}){student['paper_name']}"
             )
         output_string_parts.append("".join(single_line_students))
 
@@ -1250,7 +1250,7 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
 
         for k, student in enumerate(block_students):
             excel_row_for_students[k] = (
-                f"{student['roll_num']}( कक्ष-{student['room_num']}-सीट-{student['seat_num_display']}){student['paper_name']}"
+                f"{student['roll_num']}( Room-{student['room_num']}-Seat-{student['seat_num_display']}){student['paper_name']}"
             )
         
         excel_output_data.append(excel_row_for_students)
@@ -1308,7 +1308,8 @@ def extract_metadata_from_pdf_text(text):
     paper_code = re.search(r'Paper Code[:\s]*([A-Z0-9]+)', text, re.IGNORECASE)
     paper_code_val = _format_paper_code(paper_code.group(1)) if paper_code else "UNSPECIFIED_PAPER_CODE" # Use formatter
    
-    paper_name = re.search(r'Paper Name[:\s]*(.+?)(?:\n|$)', text)
+    paper_name = re.search(r'Paper Name[:\s]*((?:.+\n?)+?)(?=\n[A-Z][a-z]+\s*:|$)', text)
+
     paper_name_val = paper_name.group(1).strip() if paper_name else "UNSPECIFIED_PAPER_NAME"
    
     return {
@@ -3737,7 +3738,7 @@ elif menu == "Admin Panel":
                     # Enhanced capacity input
                     col1, col2 = st.columns(2)
                     with col1:
-                        total_capacity = st.number_input("Enter Total Room Capacity (for '1 to N' format)", min_value=1, max_value=2000, value=2000, key="total_capacity_input")
+                        total_capacity = st.number_input("Enter Total Room Capacity (for '1 to N' format)", min_value=1, max_value=2000, value=60, key="total_capacity_input")
                     with col2:
                         capacity_per_format = st.number_input("Capacity per Format (for 'A/B' formats)", min_value=1, max_value=100, value=30, key="capacity_per_format_input")
 
