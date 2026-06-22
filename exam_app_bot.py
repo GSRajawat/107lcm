@@ -205,7 +205,7 @@ def upload_csv_to_supabase(table_name, csv_path, unique_cols=None):
         column_mappings = {
             'Roll Number': 'roll_number', 'Paper Code': 'paper_code', 'Paper Name': 'paper_name',
             'Room Number': 'room_number', 'Seat Number': 'seat_number', 'date': 'date',
-            'shift': 'shift', 'SN': 'sn', 'Time': 'time', 'Class': 'class', 'Paper': 'paper', 'Name': 'name',
+            'shift': 'shift', 'SN': 'sn', 'Time': 'time', 'Class': 'class', 'Paper': 'paper', 'Name': 'name', 'Center Code': 'center_code',
             'Roll Number 1': 'roll_number_1', 'Roll Number 2': 'roll_number_2',
             'Roll Number 3': 'roll_number_3', 'Roll Number 4': 'roll_number_4',
             'Roll Number 5': 'roll_number_5', 'Roll Number 6': 'roll_number_6',
@@ -347,18 +347,18 @@ def download_supabase_to_csv(table_name, filename):
     reverse_column_mappings = {
         'roll_number': 'Roll Number', 'paper_code': 'Paper Code', 'paper_name': 'Paper Name',
         'room_number': 'Room Number', 'seat_number': 'Seat Number', 'date': 'date',
-        'shift': 'shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper', 'name': 'Name',
-        'roll_number_1': 'Roll Number 1', 'roll_number_2': 'Roll Number 2',
-        'roll_number_3': 'Roll Number 3', 'Roll Number 4': 'Roll Number 4',
-        'roll_number_5': 'Roll Number 5', 'roll_number_6': 'Roll Number 6',
-        'roll_number_7': 'Roll Number 7', 'Roll Number 8': 'Roll Number 8',
-        'roll_number_9': 'Roll Number 9', 'Roll Number 10': 'Roll Number 10',
+        'shift': 'shift', 'sn': 'SN', 'time': 'Time', 'class': 'Class', 'paper': 'Paper', 'name': 'Name', 'center_code': 'Center Code',
+        'Roll Number 1': 'Roll Number 1', 'Roll Number 2': 'Roll Number 2',
+        'Roll Number 3': 'Roll Number 3', 'Roll Number 4': 'Roll Number 4',
+        'Roll Number 5': 'Roll Number 5', 'Roll Number 6': 'Roll Number 6',
+        'Roll Number 7': 'Roll Number 7', 'Roll Number 8': 'Roll Number 8',
+        'Roll Number 9': 'Roll Number 9', 'Roll Number 10': 'Roll Number 10',
         'mode': 'Mode', 'type': 'Type',
-        'seat_number_1': 'Seat Number 1', 'seat_number_2': 'Seat Number 2',
-        'seat_number_3': 'Seat Number 3', 'seat_number_4': 'Seat Number 4',
-        'seat_number_5': 'Seat Number 5', 'seat_number_6': 'Seat Number 6',
-        'seat_number_7': 'Seat Number 7', 'seat_number_8': 'Seat Number 8',
-        'seat_number_9': 'Seat Number 9', 'seat_number_10': 'Seat Number 10',
+        'Seat Number 1': 'Seat Number 1', 'Seat Number 2': 'Seat Number 2',
+        'Seat Number 3': 'Seat Number 3', 'Seat Number ': 'Seat Number 4',
+        'Seat Number 5': 'Seat Number 5', 'Seat Number 6': 'Seat Number 6',
+        'Seat Number 7': 'Seat Number 7', 'Seat Number 8': 'Seat Number 8',
+        'Seat Number 9': 'Seat Number 9', 'Seat Number 10': 'Seat Number 10',
         'enrollment_number': 'Enrollment Number', 'session': 'Session',
         'regular_backlog': 'Regular/Backlog', 'father_name': 'Father\'s Name',
         'mother_name': 'Mother\'s Name', 'gender': 'Gender',
@@ -674,7 +674,7 @@ def save_shift_assignment(date, shift, assignments):
     new_row_df = pd.DataFrame([data_for_df])
 
     # Check if assignment_key already exists
-    if assignment_key in (assignments_df['date'] + '_' + assignments_df['shift']).values:
+    if assignment_key in (assignments_df['date'].astype(str) + '_' + assignments_df['shift'].astype(str)).values:
         idx_to_update = assignments_df[(assignments_df['date'] == date) & (assignments_df['shift'] == shift)].index[0]
         for col, val in data_for_df.items():
             assignments_df.loc[idx_to_update, col] = val
@@ -942,12 +942,12 @@ def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df
 
     # --- Prepare text output ---
     output_string_parts = []
-    output_string_parts.append("जीवाजी विश्वविद्यालय ग्वालियर")
-    output_string_parts.append("परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107")
+    output_string_parts.append("JIWAJI UNIVERSITY GWALIOR")
+    output_string_parts.append("Examination Centre :- Government Law College, Morena (MP) Code :- G107")
     output_string_parts.append(class_summary_header)
-    output_string_parts.append(f"दिनांक :-{date_str}")
-    output_string_parts.append(f"पाली :-{shift}")
-    output_string_parts.append(f"समय :-{exam_time}")
+    output_string_parts.append(f"Date :-{date_str}")
+    output_string_parts.append(f"Shift :-{shift}")
+    output_string_parts.append(f"Time :-{exam_time}")
 
     students_by_room = {}
     for student in all_students_data:
@@ -970,7 +970,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df
             for student in block_students:
                 # Modified formatting here: removed space after '(' and added '-' before paper_name
                 single_line_students.append(
-                    f"{student['roll_num']}( Room-{student['room_num']}-Seat-{student['seat_num_display']})-{student['paper_name']}"
+                    f"{student['roll_num']}( Room -{student['room_num']}-Seat -{student['seat_num_display']})-{student['paper_name']}"
                 )
 
             output_string_parts.append("".join(single_line_students)) # Join directly without spaces
@@ -981,13 +981,13 @@ def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df
     excel_output_data = []
 
     # Excel Header
-    excel_output_data.append(["जीवाजी विश्वविद्यालय ग्वालियर"])
-    excel_output_data.append(["परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107"])
+    excel_output_data.append(["JIWAJI UNIVERSITY GWALIOR"])
+    excel_output_data.append(["Examination Centre :- Government Law College, Morena (MP) Code :- G107"])
     excel_output_data.append([class_summary_header])
     excel_output_data.append([]) # Blank line
-    excel_output_data.append(["दिनांक :-", date_str])
-    excel_output_data.append(["पाली :-", shift])
-    excel_output_data.append(["समय :-", exam_time])
+    excel_output_data.append(["Date :-", date_str])
+    excel_output_data.append(["Shift :-", shift])
+    excel_output_data.append(["Time :-", exam_time])
     excel_output_data.append([]) # Blank line
 
     # Excel Student Data Section (now each block of 10 students is one row, each student is one cell)
@@ -1005,7 +1005,7 @@ def get_all_students_for_date_shift_formatted(date_str, shift, assigned_seats_df
             for k, student in enumerate(block_students):
                 # Each cell contains the full student string, modified formatting
                 excel_row_for_students[k] = (
-                    f"{student['roll_num']}( Room-{student['room_num']}-Seat-{student['seat_num_display']})-{student['paper_name']}"
+                    f"{student['roll_num']}( Room -{student['room_num']}-Seat -{student['seat_num_display']})-{student['paper_name']}"
                 )
 
             excel_output_data.append(excel_row_for_students)
@@ -1043,7 +1043,7 @@ def save_room_invigilator_assignment(date, shift, room_num, invigilators):
     new_row_df = pd.DataFrame([data_for_df])
 
     # Check if assignment_key already exists
-    if assignment_key in (inv_df['date'] + '_' + inv_df['shift'] + '_' + inv_df['room_num'].astype(str)).values:
+    if assignment_key in (inv_df['date'].astype(str) + '_' + inv_df['shift'].astype(str) + '_' + inv_df['room_num'].astype(str)).values:
         idx_to_update = inv_df[
             (inv_df['date'] == date) & 
             (inv_df['shift'] == shift) & 
@@ -1208,12 +1208,12 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
 
     # --- Prepare text output ---
     output_string_parts = []
-    output_string_parts.append("जीवाजी विश्वविद्यालय ग्वालियर")
-    output_string_parts.append("परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107")
+    output_string_parts.append("JIWAJI UNIVERSITY GWALIOR")
+    output_string_parts.append("Examination Centre :- Government Law College, Morena (MP) Code :- G107")
     output_string_parts.append(class_summary_header)
-    output_string_parts.append(f"दिनांक :-{date_str}")
-    output_string_parts.append(f"पाली :-{shift}")
-    output_string_parts.append(f"समय :-{exam_time}")
+    output_string_parts.append(f"Date :-{date_str}")
+    output_string_parts.append(f"Shift :-{shift}")
+    output_string_parts.append(f"Time :-{exam_time}")
     output_string_parts.append("") # Blank line for separation
 
     num_cols = 10 
@@ -1223,7 +1223,7 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
         single_line_students = []
         for student in block_students:
             single_line_students.append(
-                f"{student['roll_num']}( Room-{student['room_num']}-Seat-{student['seat_num_display']}){student['paper_name']}"
+                f"{student['roll_num']}( Room -{student['room_num']}-Seat -{student['seat_num_display']}){student['paper_name']}"
             )
         output_string_parts.append("".join(single_line_students))
 
@@ -1233,13 +1233,13 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
     excel_output_data = []
 
     # Excel Header
-    excel_output_data.append(["जीवाजी विश्वविद्यालय ग्वालियर"])
-    excel_output_data.append(["परीक्षा केंद्र :- शासकीय विधि महाविद्यालय, मुरेना (म. प्र.) कोड :- G107"])
+    excel_output_data.append(["JIWAJI UNIVERSITY GWALIOR"])
+    excel_output_data.append(["Examination Centre :- Government Law College, Morena (MP) Code :- G107"])
     excel_output_data.append([class_summary_header])
     excel_output_data.append([]) # Blank line
-    excel_output_data.append(["दिनांक :-", date_str])
-    excel_output_data.append(["पाली :-", shift])
-    excel_output_data.append(["समय :-", exam_time])
+    excel_output_data.append(["Date :-", date_str])
+    excel_output_data.append(["Shift :-", shift])
+    excel_output_data.append(["Time :-", exam_time])
     excel_output_data.append([]) # Blank line
 
     # Excel Student Data Section
@@ -1250,7 +1250,7 @@ def get_all_students_roll_number_wise_formatted(date_str, shift, assigned_seats_
 
         for k, student in enumerate(block_students):
             excel_row_for_students[k] = (
-                f"{student['roll_num']}( Room-{student['room_num']}-Seat-{student['seat_num_display']}){student['paper_name']}"
+                f"{student['roll_num']}( Room -{student['room_num']}-Seat -{student['seat_num_display']}){student['paper_name']}"
             )
         
         excel_output_data.append(excel_row_for_students)
@@ -1308,8 +1308,7 @@ def extract_metadata_from_pdf_text(text):
     paper_code = re.search(r'Paper Code[:\s]*([A-Z0-9]+)', text, re.IGNORECASE)
     paper_code_val = _format_paper_code(paper_code.group(1)) if paper_code else "UNSPECIFIED_PAPER_CODE" # Use formatter
    
-    paper_name = re.search(r'Paper Name[:\s]*((?:.+\n?)+?)(?=\n[A-Z][a-z]+\s*:|$)', text)
-
+    paper_name = re.search(r'Paper Name[:\s]*(.+?)(?:\n|$)', text)
     paper_name_val = paper_name.group(1).strip() if paper_name else "UNSPECIFIED_PAPER_NAME"
    
     return {
@@ -1989,7 +1988,6 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
     unique_classes = relevant_tt_exams['Class'].dropna().astype(str).str.strip().unique()
     class_summary_header = ""
     if len(unique_classes) == 1:
-        # Assuming the year is the current year for the header formatting
         class_summary_header = f"{unique_classes[0]} Examination {datetime.datetime.now().year}"
     elif len(unique_classes) > 1:
         class_summary_header = f"Various Classes Examination {datetime.datetime.now().year}"
@@ -1997,7 +1995,7 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
         class_summary_header = f"Examination {datetime.datetime.now().year}"
 
     # Static header lines
-    output_string_parts.append(",,,,,,,,,\nJIWAJI UNIVERSITY GWALIOR,,,,,,,,,\n\"Examination Centre :- Government Law College, Morena (MP) Code :- G107 \",,,,,,,,,\n")
+    output_string_parts.append(",,,,,,,,,\nJIWAJI UNIVERSITY GWALIOR ,,,,,,,,,\n\"Examination Centre :- Government Law College, Morena (MP) Code :- G107 \",,,,,,,,,\n")
     output_string_parts.append(f"{class_summary_header},,,,,,,,,\n")
     output_string_parts.append(f"date :- ,,{date_str},,shift :-,{shift},,Time :- ,,\n")
 
@@ -2012,6 +2010,7 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
         return "".join(output_string_parts)
 
     # Merge with timetable to get full paper names and Class
+    # Ensure paper codes are comparable (e.g., int vs str)
     assigned_students_for_session['Paper Code'] = assigned_students_for_session['Paper Code'].astype(str)
     timetable_df['Paper Code'] = timetable_df['Paper Code'].astype(str)
 
@@ -2020,29 +2019,20 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
         timetable_df[['Paper Code', 'Paper Name', 'Class']], # Need Class for the summary line
         on='Paper Code',
         how='left',
-        suffixes=('', '_tt') 
+        suffixes=('', '_tt') # Suffixes are applied only if column names are duplicated in both DFs
     )
-    
-    # Use Paper Name from timetable if available
+    # Use Paper Name from timetable if available, otherwise from assigned_seats_df
     assigned_students_for_session['Paper Name'] = assigned_students_for_session['Paper Name_tt'].fillna(assigned_students_for_session['Paper Name'])
     
-    # Use Class from timetable if available
+    # Corrected line: Access 'Class' directly, as it would not have been suffixed if not present in assigned_seats_df
+    # The 'Class' column from timetable_df is merged directly if assigned_seats_df doesn't have one,
+    # otherwise it would be 'Class_tt'. We need to check which one exists.
     if 'Class_tt' in assigned_students_for_session.columns:
         assigned_students_for_session['Class'] = assigned_students_for_session['Class_tt'].fillna('')
-    elif 'Class' not in assigned_students_for_session.columns:
-        assigned_students_for_session['Class'] = '' 
-
-    
-    # ----------------------------------------------------------------------
-    # *** CORRECTION TO REMOVE DUPLICATE STUDENT ENTRIES ***
-    # This removes redundant rows where the same student/paper/seat combination exists, 
-    # which was causing the duplicate entries in the final roll number list and the inflated total.
-    assigned_students_for_session.drop_duplicates(
-        subset=["Roll Number", "Paper Code", "Room Number", "Seat Number"],
-        inplace=True
-    )
-    # ----------------------------------------------------------------------
-
+    elif 'Class' in assigned_students_for_session.columns: # Fallback if 'Class' was already in assigned_seats_df
+        assigned_students_for_session['Class'] = assigned_students_for_session['Class'].fillna('')
+    else:
+        assigned_students_for_session['Class'] = '' # Default if neither exists, though this should be caught by earlier checks
 
     # Sort by Room Number, then by Seat Number
     def sort_seat_number_key(seat):
@@ -2064,11 +2054,10 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
     students_by_room = assigned_students_for_session.groupby('Room Number')
 
     for room_num, room_data in students_by_room:
-        output_string_parts.append(f"\n,,,Room :-,{room_num}  ,,,,\n") # Room header
+        output_string_parts.append(f"\n,,,Room  :-,{room_num}  ,,,,\n") # Room header
         
-        # Get unique papers for this room and session for the "परीक्षा का नाम" line
-        # Use .copy() to avoid SettingWithCopyWarning
-        unique_papers_in_room = room_data[['Class', 'Paper Code', 'Paper Name']].drop_duplicates().copy()
+        # Get unique papers for this room and session for the "Name of Exam" line
+        unique_papers_in_room = room_data[['Class', 'Paper Code', 'Paper Name']].drop_duplicates()
         
         for _, paper_row in unique_papers_in_room.iterrows():
             paper_class = str(paper_row['Class']).strip()
@@ -2080,20 +2069,19 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
                 (room_data['Paper Code'].astype(str).str.strip() == paper_code) &
                 (room_data['Paper Name'].astype(str).str.strip() == paper_name)
             ]
-            num_students_for_paper = len(students_for_this_paper_in_room) # This is now the corrected unique count
+            num_students_for_paper = len(students_for_this_paper_in_room)
 
             output_string_parts.append(
-                f"Name of Exam,,,Paper,,,,Answer Sheets,,\n"
-                f",,,,,,,Received ,Used ,Balance \n"
-                f"{paper_class} ,,,{paper_code} - {paper_name}        ,,,,{num_students_for_paper},,\n" # Assuming Regular for now
+                f"Name of Exam (Class - mode - Type),,,Paper  (paper- paper code - paper name),,,,Answer Sheets (number of students),,\n"
+                f",,,,,,,Received  ,Used  ,Balance   \n"
+                f"{paper_class} ,,,{paper_code} - {paper_name}        ,,,,{num_students_for_paper},,\n" # Assuming Regular for now
             )
             output_string_parts.append(",,,,,,,,,\n") # Blank line
 
         output_string_parts.append(",,,,,,,,,\n") # Blank line
-        # len(room_data) is now the correct, non-duplicated total
-        output_string_parts.append(f",,,Total,,,,{len(room_data)},,\n") 
+        output_string_parts.append(f",,,Total,,,,{len(room_data)},,\n") # Total for the room
         output_string_parts.append(",,,,,,,,,\n") # Blank line
-        output_string_parts.append("roll number - (room number-seat number),,,,,,,,,\n")
+        output_string_parts.append("roll number - (room number-seat number) - 20 letters of paper name,,,,,,,,,\n")
 
         # Now add the roll number lines
         current_line_students = []
@@ -2106,9 +2094,8 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
             # Truncate paper name to first 20 characters
             truncated_paper_name = paper_name_display[:20]
 
-            # This line appends the student once (no duplication here)
-            student_entry = f"{roll_num}( Room-{room_num_display}-Seat-{seat_num_display})-{truncated_paper_name}"
-            current_line_students.append(student_entry) 
+            student_entry = f"{roll_num}( Room -{room_num_display}-Seat -{seat_num_display})-{truncated_paper_name}"
+            current_line_students.append(student_entry)
 
             if len(current_line_students) == 10:
                 output_string_parts.append(",".join(current_line_students) + "\n")
@@ -2121,6 +2108,7 @@ def generate_room_chart_report(date_str, shift, sitting_plan_df, assigned_seats_
         output_string_parts.append("\n") # Add an extra newline between rooms
 
     return "".join(output_string_parts)
+
 # Function to generate UFM print form
 # Corrected function to generate UFM print form
 def generate_ufm_print_form(ufm_roll_number, attestation_df, assigned_seats_df, timetable_df,
@@ -3632,7 +3620,7 @@ elif menu == "Admin Panel":
                     default_shift_update_input = str(timetable['shift'].iloc[0]).strip()
 
 
-                default_time_update_input = "09:00 AM - 12:00 PM"
+                default_time_update_input = "09:00 AM - 12:00 NOON"
                 if not temp_filtered_tt.empty and 'Time' in temp_filtered_tt.columns and pd.notna(temp_filtered_tt['Time'].iloc[0]):
                     default_time_update_input = str(temp_filtered_tt['Time'].iloc[0]).strip()
                 elif 'Time' in timetable.columns and not timetable['Time'].empty and pd.notna(timetable['Time'].iloc[0]):
@@ -3641,7 +3629,7 @@ elif menu == "Admin Panel":
 
                 update_date = st.date_input("New date", value=default_date_update_input, key="update_tt_date")
                 update_shift = st.selectbox("New shift", ["Morning", "Evening"], index=["Morning", "Evening"].index(default_shift_update_input) if default_shift_update_input in ["Morning", "Evening"] else 0, key="update_tt_shift")
-                update_time = st.text_input("New Time (e.g., 09:00 AM - 12:00 PM)", value=default_time_update_input, key="update_tt_time")
+                update_time = st.text_input("New Time (e.g., 09:00 AM - 12:00 NOON)", value=default_time_update_input, key="update_tt_time")
 
                 if st.button("Apply Updates and Save Timetable"):
                     if temp_filtered_tt.empty:
